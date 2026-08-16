@@ -1,0 +1,7 @@
+# Herdr Navigator has no settings yet.
+#
+# Its operations are all explicit — you type, you jump —
+# so there is nothing to configure. This file is a placeholder so the location
+# is discoverable:
+#
+#   herdr plugin config-dir navigator

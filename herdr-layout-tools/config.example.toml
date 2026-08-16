@@ -1,0 +1,7 @@
+# Herdr Layout Tools has no settings yet.
+#
+# Its operations are all explicit — you pick an arrangement and it applies it —
+# so there is nothing to configure. This file is a placeholder so the location
+# is discoverable:
+#
+#   herdr plugin config-dir layout-tools

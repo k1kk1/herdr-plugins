@@ -1,0 +1,175 @@
+id = "pane-manager"
+name = "Pane Manager"
+version = "0.1.0"
+min_herdr_version = "0.8.0"
+description = "Move, swap, extract and merge panes across tabs without restarting the processes inside them"
+platforms = ["macos", "linux"]
+
+# `cargo build --release` runs from the plugin root at link/install time.
+[[build]]
+command = ["cargo", "build", "--release"]
+
+# The picker UI. Every action that needs a choice opens this pane; the pane
+# closes itself as soon as the operation completes or is cancelled.
+[[panes]]
+id = "manager"
+title = "Pane Manager"
+description = "Move / Swap / Extract / Merge the current pane"
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" ui']
+placement = "popup"
+width = "60%"
+height = "70%"
+
+# ---------------------------------------------------------------------------
+# Actions (spec §11). Kept to the four core operations plus the manager entry
+# and the nine Quick Move slots; anything more belongs to Layout Tools,
+# Navigator or Command Palette plugins (spec §2.2).
+#
+# Herdr rejects dots in action ids, so the spec's `pane-manager.move` is
+# spelled `move` here and addressed as
+#   herdr plugin action invoke move --plugin pane-manager
+# The plugin id already supplies the namespace.
+#
+# Actions carrying `contexts = ["pane"]` appear in Herdr's pane context menu,
+# and `contexts = ["tab"]` in the tab context menu (spec §8).
+# ---------------------------------------------------------------------------
+
+[[actions]]
+id = "open"
+title = "Pane Manager"
+description = "Open the Pane Manager menu for the current pane"
+contexts = ["pane", "global"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" launch manager']
+
+[[actions]]
+id = "move"
+title = "Move to Tab..."
+description = "Move this pane into another tab"
+contexts = ["pane"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" launch move']
+
+[[actions]]
+id = "swap"
+title = "Swap with Pane..."
+description = "Exchange this pane with another pane, in this tab or another one"
+contexts = ["pane"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" launch swap']
+
+[[actions]]
+id = "extract"
+title = "Extract to New Tab"
+description = "Split this pane out into a tab of its own"
+contexts = ["pane"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" extract']
+
+[[actions]]
+id = "merge-tab"
+title = "Merge Into..."
+description = "Move every pane of this tab into another tab"
+contexts = ["tab", "pane"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" launch merge']
+
+[[actions]]
+id = "undo"
+title = "Undo Last Pane Operation"
+description = "Reverse the last Move / Extract / Merge / Swap"
+contexts = ["global", "pane", "tab"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" undo']
+
+# Active Agent Gather (addendum §17). `gather-active` uses the configured
+# panes-per-tab and scope; the numbered variants override the size for one run.
+# Nothing here refreshes on its own — a Gather only ever moves panes because
+# the user asked (addendum §14).
+
+[[actions]]
+id = "gather-active"
+title = "Gather Active Agents"
+description = "Collect blocked, done and working agents into Active Agents tabs"
+contexts = ["global", "pane", "tab"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" gather']
+
+[[actions]]
+id = "refresh-gather"
+title = "Refresh Gathered Agents"
+description = "Rebuild the Active Agents tabs from the agents' current states"
+contexts = ["global", "tab"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" refresh-gather']
+
+[[actions]]
+id = "restore-gather"
+title = "Restore Gathered Agents"
+description = "Return every gathered pane to the tab it came from"
+contexts = ["global", "tab"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" restore-gather']
+
+[[actions]]
+id = "gather-active-2"
+title = "Gather Active Agents (2 per tab)"
+contexts = ["global"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" gather 2']
+
+[[actions]]
+id = "gather-active-3"
+title = "Gather Active Agents (3 per tab)"
+contexts = ["global"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" gather 3']
+
+[[actions]]
+id = "gather-active-4"
+title = "Gather Active Agents (4 per tab)"
+contexts = ["global"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" gather 4']
+
+[[actions]]
+id = "quick-move-1"
+title = "Quick Move to Tab 1"
+contexts = ["pane"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" quick-move 1']
+
+[[actions]]
+id = "quick-move-2"
+title = "Quick Move to Tab 2"
+contexts = ["pane"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" quick-move 2']
+
+[[actions]]
+id = "quick-move-3"
+title = "Quick Move to Tab 3"
+contexts = ["pane"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" quick-move 3']
+
+[[actions]]
+id = "quick-move-4"
+title = "Quick Move to Tab 4"
+contexts = ["pane"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" quick-move 4']
+
+[[actions]]
+id = "quick-move-5"
+title = "Quick Move to Tab 5"
+contexts = ["pane"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" quick-move 5']
+
+[[actions]]
+id = "quick-move-6"
+title = "Quick Move to Tab 6"
+contexts = ["pane"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" quick-move 6']
+
+[[actions]]
+id = "quick-move-7"
+title = "Quick Move to Tab 7"
+contexts = ["pane"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" quick-move 7']
+
+[[actions]]
+id = "quick-move-8"
+title = "Quick Move to Tab 8"
+contexts = ["pane"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" quick-move 8']
+
+[[actions]]
+id = "quick-move-9"
+title = "Quick Move to Tab 9"
+contexts = ["pane"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" quick-move 9']

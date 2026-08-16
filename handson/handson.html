@@ -1,0 +1,1621 @@
+<title>Herdr 操作ドリル</title>
+
+<style>
+  :root {
+    /* 明るいテーマ。緑に寄せたニュートラルで、アクセントのティールと地続きにする */
+    --ground:      #F1F4F3;
+    --surface:     #FFFFFF;
+    --surface-sunk:#E9EDEC;
+    --ink:         #131917;
+    --ink-soft:    #4A5654;
+    --ink-faint:   #7C8A87;
+    --rule:        #D6DDDB;
+    --rule-strong: #BFC9C7;
+
+    --accent:      #0C6F66;
+    --accent-soft: #E0EFEC;
+    --accent-ink:  #08554E;
+
+    --blocked:     #B0480F;
+    --blocked-bg:  #F8E9DE;
+    --done:        #37733F;
+    --done-bg:     #E4EFE4;
+    --working:     #1C6796;
+    --working-bg:  #E1ECF4;
+    --idle:        #7C8A87;
+    --idle-bg:     #E9EDEC;
+
+    --key-face:    #FFFFFF;
+    --key-edge:    #C3CCCA;
+    --key-shadow:  rgba(19, 25, 23, .14);
+
+    --shadow-card: 0 1px 2px rgba(19,25,23,.04), 0 8px 24px -16px rgba(19,25,23,.20);
+
+    --font-display: "Avenir Next", "Hiragino Sans", "Hiragino Kaku Gothic ProN", system-ui, sans-serif;
+    --font-body:    "Avenir Next", "Hiragino Sans", "Hiragino Kaku Gothic ProN", system-ui, sans-serif;
+    --font-mono:    "SF Mono", "Menlo", "Monaco", ui-monospace, monospace;
+
+    --measure: 68ch;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:      #0D1211;
+      --surface:     #151B1A;
+      --surface-sunk:#101615;
+      --ink:         #E3EAE8;
+      --ink-soft:    #A2AFAC;
+      --ink-faint:   #71807D;
+      --rule:        #263130;
+      --rule-strong: #384644;
+
+      --accent:      #4CC7B6;
+      --accent-soft: #14322E;
+      --accent-ink:  #7FDDCF;
+
+      --blocked:     #EFA05A;
+      --blocked-bg:  #33220F;
+      --done:        #7BC488;
+      --done-bg:     #172C1B;
+      --working:     #79BCE6;
+      --working-bg:  #12283A;
+      --idle:        #71807D;
+      --idle-bg:     #1A2120;
+
+      --key-face:    #1D2524;
+      --key-edge:    #36423F;
+      --key-shadow:  rgba(0,0,0,.5);
+
+      --shadow-card: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px -18px rgba(0,0,0,.8);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground:      #0D1211;
+    --surface:     #151B1A;
+    --surface-sunk:#101615;
+    --ink:         #E3EAE8;
+    --ink-soft:    #A2AFAC;
+    --ink-faint:   #71807D;
+    --rule:        #263130;
+    --rule-strong: #384644;
+
+    --accent:      #4CC7B6;
+    --accent-soft: #14322E;
+    --accent-ink:  #7FDDCF;
+
+    --blocked:     #EFA05A;
+    --blocked-bg:  #33220F;
+    --done:        #7BC488;
+    --done-bg:     #172C1B;
+    --working:     #79BCE6;
+    --working-bg:  #12283A;
+    --idle:        #71807D;
+    --idle-bg:     #1A2120;
+
+    --key-face:    #1D2524;
+    --key-edge:    #36423F;
+    --key-shadow:  rgba(0,0,0,.5);
+
+    --shadow-card: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px -18px rgba(0,0,0,.8);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.75;
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: "palt" 1;
+  }
+
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible, button:focus-visible, input:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  /* ---------- shell ---------- */
+
+  .shell {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0 clamp(16px, 4vw, 40px) 96px;
+    display: grid;
+    grid-template-columns: 220px minmax(0, 1fr);
+    gap: clamp(24px, 5vw, 64px);
+    align-items: start;
+  }
+
+  @media (max-width: 900px) {
+    .shell { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  }
+
+  /* ---------- masthead ---------- */
+
+  .masthead {
+    grid-column: 1 / -1;
+    padding: clamp(48px, 9vw, 96px) 0 clamp(32px, 5vw, 56px);
+    border-bottom: 1px solid var(--rule);
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0;
+  }
+
+  .masthead h1 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    letter-spacing: -.025em;
+    font-size: clamp(34px, 6vw, 58px);
+    line-height: 1.08;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  .nb { white-space: nowrap; }
+
+  .lede {
+    margin: 0;
+    max-width: var(--measure);
+    font-size: clamp(16px, 1.6vw, 18px);
+    color: var(--ink-soft);
+  }
+
+  .facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    margin: 4px 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .facts li {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--ink-soft);
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    padding: 4px 12px;
+  }
+
+  /* ---------- rail ---------- */
+
+  .rail {
+    position: sticky;
+    top: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding-top: 48px;
+  }
+
+  .rail h2 {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin: 0 0 10px 10px;
+    font-weight: 500;
+  }
+
+  .rail a {
+    display: grid;
+    grid-template-columns: 22px 1fr;
+    gap: 8px;
+    align-items: baseline;
+    padding: 6px 10px;
+    border-radius: 6px;
+    text-decoration: none;
+    color: var(--ink-soft);
+    font-size: 14px;
+    line-height: 1.4;
+    transition: background .15s ease, color .15s ease;
+  }
+
+  .rail a .n {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .rail a:hover { background: var(--surface); color: var(--ink); }
+  .rail a.on { background: var(--accent-soft); color: var(--accent-ink); }
+  .rail a.on .n { color: var(--accent); }
+  .rail a.cleared { text-decoration: line-through; text-decoration-color: var(--rule-strong); }
+
+  .rail .tally {
+    margin: 14px 0 0 10px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  @media (max-width: 900px) {
+    .rail {
+      position: static;
+      padding: 24px 0 0;
+      flex-direction: row;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .rail h2, .rail .tally { width: 100%; margin-left: 0; }
+    .rail a { border: 1px solid var(--rule); background: var(--surface); }
+  }
+
+  /* ---------- content ---------- */
+
+  main { padding-top: 48px; min-width: 0; }
+
+  section { margin: 0 0 clamp(48px, 7vw, 80px); }
+
+  h2.sec {
+    font-family: var(--font-display);
+    font-weight: 700;
+    letter-spacing: -.02em;
+    font-size: clamp(22px, 2.6vw, 28px);
+    line-height: 1.25;
+    margin: 0 0 8px;
+    text-wrap: balance;
+  }
+
+  .sec-note { margin: 0 0 24px; color: var(--ink-soft); max-width: var(--measure); }
+
+  p { max-width: var(--measure); }
+
+  /* ---------- exercise card ---------- */
+
+  .drill {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    box-shadow: var(--shadow-card);
+    overflow: hidden;
+    margin-bottom: clamp(28px, 4vw, 40px);
+    scroll-margin-top: 20px;
+  }
+
+  .drill > header {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 4px 14px;
+    align-items: baseline;
+    padding: 22px clamp(18px, 3vw, 28px);
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .drill .num {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--accent);
+    letter-spacing: .08em;
+    padding-top: 4px;
+  }
+
+  .drill h3 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    letter-spacing: -.015em;
+    font-size: clamp(19px, 2.2vw, 23px);
+    line-height: 1.3;
+    margin: 0;
+  }
+
+  .drill .plugin {
+    grid-column: 2;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin: 0;
+  }
+
+  .check {
+    grid-row: 1 / span 2;
+    grid-column: 3;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    cursor: pointer;
+    user-select: none;
+    align-self: center;
+    white-space: nowrap;
+  }
+  .check input { accent-color: var(--accent); width: 15px; height: 15px; cursor: pointer; }
+  .drill.cleared .check { color: var(--accent); }
+
+  .beats { display: flex; flex-direction: column; }
+
+  .beat {
+    display: grid;
+    grid-template-columns: 84px minmax(0, 1fr);
+    gap: 0 18px;
+    padding: 20px clamp(18px, 3vw, 28px);
+    border-bottom: 1px dashed var(--rule);
+  }
+  .beat:last-child { border-bottom: none; }
+
+  .beat > .label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    padding-top: 5px;
+  }
+
+  .beat > .body { min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+  .beat > .body > :first-child { margin-top: 0; }
+  .beat > .body > :last-child { margin-bottom: 0; }
+  .beat p { margin: 0; }
+
+  @media (max-width: 620px) {
+    .beat { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+    .beat > .label { padding-top: 0; }
+  }
+
+  /* ---------- keys ---------- */
+
+  kbd {
+    font-family: var(--font-mono);
+    font-size: .82em;
+    line-height: 1;
+    display: inline-block;
+    padding: 4px 7px;
+    background: var(--key-face);
+    border: 1px solid var(--key-edge);
+    border-bottom-width: 2px;
+    border-radius: 5px;
+    box-shadow: 0 1px 0 var(--key-shadow);
+    color: var(--ink);
+    white-space: nowrap;
+  }
+
+  .chain {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 7px;
+    padding: 14px 16px;
+    background: var(--surface-sunk);
+    border-radius: 8px;
+    border: 1px solid var(--rule);
+  }
+  .chain .arrow { color: var(--ink-faint); font-family: var(--font-mono); font-size: 13px; }
+  .chain .say {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--ink-soft);
+  }
+  .chain .grp { display: inline-flex; align-items: center; gap: 4px; }
+
+  /* ---------- code ---------- */
+
+  pre {
+    margin: 0;
+    padding: 14px 16px;
+    background: var(--surface-sunk);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    overflow-x: auto;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.7;
+    color: var(--ink);
+  }
+  pre .c { color: var(--ink-faint); }
+  pre .p { color: var(--accent); }
+
+  code:not(pre code) {
+    font-family: var(--font-mono);
+    font-size: .86em;
+    background: var(--surface-sunk);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+
+  /* ---------- status chips ---------- */
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: .04em;
+    padding: 2px 8px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .chip::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .chip.blocked { color: var(--blocked); background: var(--blocked-bg); }
+  .chip.done    { color: var(--done);    background: var(--done-bg); }
+  .chip.working { color: var(--working); background: var(--working-bg); }
+  .chip.idle    { color: var(--idle);    background: var(--idle-bg); }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+
+  /* ---------- pane diagrams ---------- */
+
+  .figure { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
+  .figure .to { font-family: var(--font-mono); color: var(--ink-faint); font-size: 15px; }
+
+  .diagram {
+    display: grid;
+    gap: 3px;
+    width: 188px;
+    height: 108px;
+    padding: 3px;
+    background: var(--rule);
+    border: 1px solid var(--rule-strong);
+    border-radius: 6px;
+    flex: none;
+  }
+  .diagram.wide { width: 214px; }
+
+  /* 実際の split tree に合わせて明示的に置く。自動配置に任せると
+     行優先で埋まってしまい、Herdr の分割構造と食い違う。 */
+  .d-1   { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+  .d-2col{ grid-template-columns: 1fr 1fr; grid-template-rows: 1fr; }
+  .d-2row{ grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
+
+  /* (r a (d b c)) — 左が全高、右が上下2段 */
+  .d-3   { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+  .d-3 > :nth-child(1) { grid-column: 1; grid-row: 1 / span 2; }
+  .d-3 > :nth-child(2) { grid-column: 2; grid-row: 1; }
+  .d-3 > :nth-child(3) { grid-column: 2; grid-row: 2; }
+
+  /* (r (d a c) (d b d)) — 2×2。左上→右上→左下→右下 の順で書く */
+  .d-4   { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+  .d-4 > :nth-child(1) { grid-column: 1; grid-row: 1; }
+  .d-4 > :nth-child(2) { grid-column: 2; grid-row: 1; }
+  .d-4 > :nth-child(3) { grid-column: 1; grid-row: 2; }
+  .d-4 > :nth-child(4) { grid-column: 2; grid-row: 2; }
+
+  /* (r (d p1 p5) (r p2 (d p3 p4))) — 左列2段 / 中央全高 / 右列2段 */
+  .d-5   { grid-template-columns: 1.4fr 1fr 1fr; grid-template-rows: 1fr 1fr; }
+  .d-5 > :nth-child(1) { grid-column: 1; grid-row: 1; }
+  .d-5 > :nth-child(2) { grid-column: 1; grid-row: 2; }
+  .d-5 > :nth-child(3) { grid-column: 2; grid-row: 1 / span 2; }
+  .d-5 > :nth-child(4) { grid-column: 3; grid-row: 1; }
+  .d-5 > :nth-child(5) { grid-column: 3; grid-row: 2; }
+
+  .diagram .p {
+    background: var(--surface);
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    line-height: 1.25;
+    color: var(--ink-soft);
+    padding: 3px;
+    overflow: hidden;
+  }
+  .diagram .p.blocked { background: var(--blocked-bg); color: var(--blocked); }
+  .diagram .p.done    { background: var(--done-bg);    color: var(--done); }
+  .diagram .p.working { background: var(--working-bg); color: var(--working); }
+  .diagram .p.star    { outline: 2px solid var(--accent); outline-offset: -2px; color: var(--accent-ink); }
+
+  .figcap {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink-faint);
+    margin: 6px 0 0;
+  }
+
+  /* ---------- settings strip ---------- */
+
+  .settings {
+    background: var(--accent-soft);
+    border-top: 1px solid var(--rule);
+    padding: 20px clamp(18px, 3vw, 28px);
+    display: grid;
+    grid-template-columns: 84px minmax(0, 1fr);
+    gap: 0 18px;
+  }
+  .settings > .label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    padding-top: 5px;
+  }
+  .settings .body { min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+  .settings dl { margin: 0; display: flex; flex-direction: column; gap: 10px; }
+  .settings dt {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    color: var(--accent-ink);
+  }
+  .settings dd { margin: 2px 0 0; color: var(--ink-soft); font-size: 14.5px; line-height: 1.6; }
+  .settings pre { background: var(--surface); }
+
+  @media (max-width: 620px) {
+    .settings { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+    .settings > .label { padding-top: 0; }
+  }
+
+  /* ---------- callouts ---------- */
+
+  .note {
+    border-left: 2px solid var(--rule-strong);
+    padding: 2px 0 2px 14px;
+    color: var(--ink-soft);
+    font-size: 14.5px;
+    line-height: 1.65;
+  }
+  .note.warn { border-left-color: var(--blocked); }
+  .note strong { color: var(--ink); font-weight: 600; }
+
+  /* ---------- tables ---------- */
+
+  .tablewrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 8px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+  th, td { text-align: left; padding: 11px 16px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  th {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  td.k { font-family: var(--font-mono); font-size: 12.5px; white-space: nowrap; color: var(--accent-ink); }
+  td.v { font-family: var(--font-mono); font-size: 12.5px; white-space: nowrap; color: var(--ink-soft); }
+
+  /* ---------- misc ---------- */
+
+  ul.plain { margin: 0; padding-left: 1.15em; display: flex; flex-direction: column; gap: 7px; }
+  ul.plain li { padding-left: 2px; }
+
+  footer.end {
+    grid-column: 1 / -1;
+    border-top: 1px solid var(--rule);
+    padding-top: 24px;
+    color: var(--ink-faint);
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
+  }
+  html { scroll-behavior: smooth; }
+</style>
+
+<div class="shell">
+
+  <header class="masthead">
+    <p class="eyebrow">Herdr Plugins · Hands-on</p>
+    <h1>状況をつくって、<span class="nb">7回だけ</span>手を動かす</h1>
+    <p class="lede">
+      キーの一覧を眺めても手は覚えません。ここでは <code>handson.sh</code> で「困っている状況」を実際に組み立てて、
+      そこから抜け出す操作を1回ずつ試します。全部終えて15〜25分。壊れても <code>clean</code> で消えます。
+    </p>
+    <ul class="facts">
+      <li>prefix = Ctrl + B</li>
+      <li>7 シナリオ</li>
+      <li>~/src/herdr-plugins/handson</li>
+      <li>プロセスは止まらない</li>
+    </ul>
+  </header>
+
+  <nav class="rail" aria-label="ドリル一覧">
+    <h2>Drills</h2>
+    <a href="#prep"><span class="n">00</span><span>準備</span></a>
+    <a href="#d1" data-drill="d1"><span class="n">01</span><span>Agentを集める</span></a>
+    <a href="#d2" data-drill="d2"><span class="n">02</span><span>迷子のPane</span></a>
+    <a href="#d3" data-drill="d3"><span class="n">03</span><span>切り出す</span></a>
+    <a href="#d4" data-drill="d4"><span class="n">04</span><span>畳み込む</span></a>
+    <a href="#d5" data-drill="d5"><span class="n">05</span><span>入れ替える</span></a>
+    <a href="#d6" data-drill="d6"><span class="n">06</span><span>形を整える</span></a>
+    <a href="#d7" data-drill="d7"><span class="n">07</span><span>探して飛ぶ</span></a>
+    <a href="#ref"><span class="n">08</span><span>設定一覧</span></a>
+    <a href="#end"><span class="n">09</span><span>片付け</span></a>
+    <p class="tally" id="tally">0 / 7 完了</p>
+  </nav>
+
+  <main>
+
+    <!-- ================= 準備 ================= -->
+    <section id="prep">
+      <h2 class="sec">準備</h2>
+      <p class="sec-note">
+        必要なのは、4つのプラグインが link されていることと、キーバインドが入っていることの2つだけです。
+      </p>
+
+      <div class="drill">
+        <div class="beats">
+          <div class="beat">
+            <div class="label">確認</div>
+            <div class="body">
+              <pre><span class="c"># 4つとも enabled になっていること</span>
+herdr plugin list</pre>
+              <p class="note">
+                出ていなければ <code>herdr plugin link ~/src/herdr-plugins/herdr-pane-manager</code> を
+                4つのディレクトリぶん実行します。link 時に <code>cargo build --release</code> も走ります。
+              </p>
+            </div>
+          </div>
+
+          <div class="beat">
+            <div class="label">キー</div>
+            <div class="body">
+              <div class="tablewrap">
+                <table>
+                  <thead><tr><th>キー</th><th>開くもの</th><th>担当</th></tr></thead>
+                  <tbody>
+                    <tr><td class="k">prefix + m</td><td>Pane Manager</td><td>Paneが<em>どのTabに属するか</em></td></tr>
+                    <tr><td class="k">prefix + alt + l</td><td>Layout Tools</td><td>Tabの<em>中のどこに置くか</em></td></tr>
+                    <tr><td class="k">prefix + f</td><td>Navigator</td><td>探して飛ぶ。何も動かさない</td></tr>
+                    <tr><td class="k">prefix + alt + p</td><td>Command Palette</td><td>全Actionの横断検索</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <p class="note">
+                これは <code>~/.config/herdr/config.toml</code> に設定済みです。変えたら
+                <code>herdr server reload-config</code>、または <kbd>prefix</kbd> <kbd>shift</kbd> <kbd>R</kbd>。
+              </p>
+            </div>
+          </div>
+
+          <div class="beat">
+            <div class="label">練習環境</div>
+            <div class="body">
+              <pre>cd ~/src/herdr-plugins/handson
+
+./handson.sh list          <span class="c"># シナリオ一覧</span>
+./handson.sh setup all     <span class="c"># 7つ全部を用意する</span>
+./handson.sh status        <span class="c"># 今なにがあるか</span>
+./handson.sh arm gather    <span class="c"># Agentの状態だけ入れ直す</span>
+./handson.sh order         <span class="c"># ドリル順に並べ直す</span>
+./handson.sh reset gather  <span class="c"># 1つ作り直す</span>
+./handson.sh clean         <span class="c"># 片付ける</span></pre>
+              <p class="note">
+                Workspaceは <code>ハンズオン 1: gather</code> … <code>ハンズオン 7: navigator</code> という名前で作られ、
+                実作業のWorkspaceの<strong>後ろにドリル順で並びます</strong>。
+                順番が崩れたら <code>order</code> を打てば並べ直せます。
+              </p>
+              <p class="note warn">
+                <strong><code>clean</code> は3つの条件を満たすWorkspaceしか閉じません。</strong>
+                ラベルが <code>ハンズオン</code> で始まること、中のPaneが全部このスクリプトの作ったものであること、
+                そして<em>スクリプト自身が動いているWorkspaceでないこと</em>。
+                練習中に自分の作業Paneを持ち込んでしまったWorkspaceは、巻き添えを避けるためスキップして警告を出します。
+                中身ごと閉じてよいと分かっているときだけ <code>clean --force</code> を使ってください。
+              </p>
+              <p class="note warn">
+                <strong><code>done</code> は「終わったのに、まだ見ていない」という意味の状態です。</strong>
+                Herdr は working → idle の遷移を <code>done</code> として覚え、
+                <em>そのPaneのあるTabを開いた瞬間に</em> <code>idle</code> へ落とします。
+                つまりシナリオを見て回るだけで <code>done</code> は溶けます。仕様どおりの動きです。
+              </p>
+              <p class="note">
+                そのためドリル01は、<strong>溶けないAgentを4体（blocked 2 + working 2）</strong>置いてあります。
+                Tabを全部開いたあとでも <kbd>4</kbd> で 2×2 がきっちり埋まります。
+                <code>done</code> はその上に乗る5体目で、<code>./handson.sh arm gather</code> を打つと復活します。
+                <code>arm</code> はレイアウトを一切触らず、記録しておいた状態を報告し直すだけです。
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 01 gather ================= -->
+    <section>
+      <div class="drill" id="d1">
+        <header>
+          <span class="num">01</span>
+          <h3>返事待ちのAgentが、別のTabに埋もれている</h3>
+          <p class="plugin">Pane Manager · Gather</p>
+          <label class="check"><input type="checkbox" data-check="d1"> done</label>
+        </header>
+
+        <div class="beats">
+          <div class="beat">
+            <div class="label">状況</div>
+            <div class="body">
+              <p>
+                5つのAgentが3つのTabに散らばっています。2つは入力待ちで止まっていますが、別Tabなので気づけません。
+                同じWorkspaceには dev server の Pane もありますが、これは Agent ではありません。
+              </p>
+              <div class="chips">
+                <span class="chip blocked">blocked · auth review</span>
+                <span class="chip blocked">blocked · api docs</span>
+                <span class="chip working">working · auth tests</span>
+                <span class="chip working">working · changelog</span>
+                <span class="chip done">done · db migration</span>
+                <span class="chip idle">agent無し · dev server</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="beat">
+            <div class="label">準備</div>
+            <div class="body">
+              <pre>./handson.sh setup gather
+./handson.sh status   <span class="c"># 「Gatherが今すぐ拾う数」を確認</span></pre>
+              <p class="note">
+                <code>status</code> の最後に <strong>Gatherが今すぐ拾う数</strong> が出ます。
+                キーを押す前にここを見れば、何枚集まるはずかが分かります。
+              </p>
+            </div>
+          </div>
+
+          <div class="beat">
+            <div class="label">操作</div>
+            <div class="body">
+              <div class="chain">
+                <span class="grp"><kbd>Ctrl</kbd><kbd>B</kbd></span>
+                <span class="arrow">→</span><kbd>M</kbd>
+                <span class="arrow">→</span><kbd>G</kbd>
+                <span class="arrow">→</span><kbd>4</kbd>
+                <span class="say">1Tabあたり4Pane</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="beat">
+            <div class="label">結果</div>
+            <div class="body">
+              <div class="figure">
+                <div>
+                  <div class="diagram d-4 wide" role="img" aria-label="Active Agents 1 は2×2。上段が blocked 2つ、下段が done と working">
+                    <div class="p blocked">blocked<br>auth review</div>
+                    <div class="p blocked">blocked<br>api docs</div>
+                    <div class="p done">done<br>db migration</div>
+                    <div class="p working">working<br>auth tests</div>
+                  </div>
+                  <p class="figcap">Active Agents 1</p>
+                </div>
+                <div>
+                  <div class="diagram d-1" style="width:96px" role="img" aria-label="Active Agents 2 は working のAgent1つ">
+                    <div class="p working">working<br>changelog</div>
+                  </div>
+                  <p class="figcap">Active Agents 2</p>
+                </div>
+              </div>
+              <ul class="plain">
+                <li>5つ目は溢れて2枚目のTabへ。<code>blocked → done → working</code> の順に詰められます。</li>
+                <li>最優先の blocked に自動でFocusが移るので、そのまま返事を打てます。</li>
+                <li>dev server は連れて行かれません。Agentとして検出されていないPaneは対象外です。</li>
+                <li>
+                  押した <kbd>4</kbd> は<strong>1Tabの上限</strong>であって目標数ではありません。
+                  対象が3体なら3枚しか入りません。<em>集まった数が想定と違うときは、まず対象が何体あるか</em>を
+                  <code>./handson.sh status</code> で確かめてください。
+                </li>
+                <li>
+                  <strong><code>done</code> の1体は、<code>migration</code> Tabを開くと消えます。</strong>
+                  Tabを見て回ってから Gather すると <code>4 + 0</code>、
+                  直前に <code>./handson.sh arm gather</code> を打つと <code>4 + 1</code> になります。
+                  どちらも正常です（理由は下）。
+                </li>
+                <li>
+                  2回目以降の Gather / Refresh は<strong>同じ <code>Active Agents</code> Tab を使い回します</strong>。
+                  Tabが増え続けたり、並び順の末尾に飛んでいったりはしません。
+                </li>
+              </ul>
+              <div class="chain">
+                <span class="say">続けて</span>
+                <span class="grp"><kbd>Ctrl</kbd><kbd>B</kbd></span><span class="arrow">→</span><kbd>M</kbd><span class="arrow">→</span><kbd>G</kbd><span class="arrow">→</span><kbd>2</kbd>
+                <span class="say">左右2分割で組み直す</span>
+              </div>
+              <div class="chain">
+                <span class="say">戻す</span>
+                <span class="grp"><kbd>Ctrl</kbd><kbd>B</kbd></span><span class="arrow">→</span><kbd>M</kbd><span class="arrow">→</span><kbd>R</kbd>
+                <span class="say">Restore</span>
+              </div>
+              <p class="note">
+                Restore のあと <code>review</code> と <code>migration</code> のTabが戻っているか見てください。
+                最後のPaneが出ていった時点で Herdr がTabを閉じているので、Pane Manager が
+                <strong>同じ名前・同じ並び順で作り直しています</strong>。
+                「3 tabs rebuilt under their original names」と出れば成功です。
+              </p>
+              <p class="note warn">
+                Gather は<strong>自分からは絶対に動きません</strong>。Agentの状態が変わってもPaneは勝手に移動しないので、
+                入力中に画面が動くことはありません。組み直したいときだけ <kbd>G</kbd> を押します。
+              </p>
+              <p class="note">
+                <strong>なぜ作業中のTabに集めず、専用のTabを作るのか。</strong>
+                集めたPaneは元のTabから引き抜かれてくるので、Restore で戻せなければいけません。
+                作業中のTabに混ぜてしまうと、そのTabが Gather のたびに書き換わり、
+                戻したあとも元の形に復元できなくなります。2/3/4 の決まった配置も、
+                先客が居るTabには当てはめられません。
+                専用Tabなら中身が全部 Gather のものなので、そのまま畳んで捨てられます。
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings">
+          <div class="label">設定</div>
+          <div class="body">
+            <dl>
+              <dt>max_panes_per_tab = 4</dt>
+              <dd>1Tabに詰めるPane数。2 / 3 / 4 のみ。画面が狭いなら 2 が読みやすい。</dd>
+              <dt>statuses = ["blocked", "done", "working"]</dt>
+              <dd><code>["blocked"]</code> にすると本当に止まっているものだけ集まる。通知の代わりに使うならこれ。</dd>
+              <dt>focus_highest_priority = true</dt>
+              <dd>false にすると集めるだけでFocusは動かない。画面を見てから決めたいとき。</dd>
+              <dt>scope = "workspace"</dt>
+              <dd><code>"all"</code> で全Workspace。メニューからは <kbd>W</kbd> / <kbd>A</kbd> で1回だけ切り替えられる。</dd>
+              <dt>agents = []</dt>
+              <dd><code>["codex"]</code> のように種別で絞れる。空なら全種別。</dd>
+              <dt>tab_label = "Active Agents"</dt>
+              <dd>生成されるTabの名前。複数枚になると末尾に番号が付く。</dd>
+            </dl>
+            <pre><span class="c"># ~/.config/herdr/plugins/config/pane-manager/config.toml</span>
+[pane-manager.gather]
+statuses = [<span class="p">"blocked"</span>]
+max_panes_per_tab = <span class="p">2</span></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 02 move ================= -->
+    <section>
+      <div class="drill" id="d2">
+        <header>
+          <span class="num">02</span>
+          <h3>Paneを置く場所を間違えた</h3>
+          <p class="plugin">Pane Manager · Quick Move / Move</p>
+          <label class="check"><input type="checkbox" data-check="d2"> done</label>
+        </header>
+
+        <div class="beats">
+          <div class="beat">
+            <div class="label">状況</div>
+            <div class="body">
+              <p>
+                Tabが6つある Workspace です。<code>editor</code> Tab の下に <code>deploy log</code> が居ますが、
+                本当は <code>deploy</code> Tab に置くつもりでした。
+              </p>
+            </div>
+          </div>
+
+          <div class="beat">
+            <div class="label">準備</div>
+            <div class="body"><pre>./handson.sh setup move</pre></div>
+          </div>
+
+          <div class="beat">
+            <div class="label">操作</div>
+            <div class="body">
+              <p><code>deploy log</code> のPaneにFocusを置いてから:</p>
+              <div class="chain">
+                <span class="grp"><kbd>Ctrl</kbd><kbd>B</kbd></span>
+                <span class="arrow">→</span><kbd>M</kbd>
+                <span class="arrow">→</span><kbd>5</kbd>
+                <span class="say">deployは5番目のTab</span>
+              </div>
+              <p class="note">
+                番号を覚える必要はありません。オーバーレイを開くと、いちばん上に
+                <em>Quick move current pane to</em> としてTab一覧が番号付きで並びます。見えている番号を押すだけです。
+              </p>
+            </div>
+          </div>
+
+          <div class="beat">
+            <div class="label">結果</div>
+            <div class="body">
+              <p>確認もアニメーションもなく、即座に移動します。ログを流しているプロセスは止まりません。</p>
+              <div class="chain">
+                <span class="say">10個目以降のTabへ</span>
+                <span class="grp"><kbd>Ctrl</kbd><kbd>B</kbd></span><span class="arrow">→</span><kbd>M</kbd><span class="arrow">→</span><kbd>M</kbd>
+                <span class="arrow">→</span><span class="say">"dep" と入力</span><span class="arrow">→</span><kbd>Enter</kbd>
+              </div>
+              <p class="note">
+                絞り込みは Workspace名 / Tab名 / Agent名 / cwd / ターミナルタイトルを横断します。
+                <code>hp</code> でも <code>plug</code> でも <code>herdr-plugins</code> に当たります。
+              </p>
+              <div class="chain">
+                <span class="say">やり直したくなったら</span>
+                <span class="grp"><kbd>Ctrl</kbd><kbd>B</kbd></span><span class="arrow">→</span><kbd>M</kbd><span class="arrow">→</span><kbd>U</kbd>
+                <span class="say">Undo</span>
+              </div>
+              <p class="note">
+                <strong>Move / Extract / Merge / Swap は1段階だけ戻せます。</strong>
+                戻せるものがあるときだけ <kbd>U</kbd> がメニューに出て、
+                「take back the Move deploy log」のように何を戻すかが副題に出ます。
+                元の Tab が空になって閉じられていた場合は、同じ名前・同じ位置で作り直されます。
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings">
+          <div class="label">設定</div>
+          <div class="body">
+            <dl>
+              <dt>default_move_direction = "right"</dt>
+              <dd>
+                <code>"ask"</code> にすると移動のたびに方向を聞かれます。
+                <kbd>H</kbd> 左 / <kbd>J</kbd> 下 / <kbd>K</kbd> 上 / <kbd>L</kbd> 右。
+                Herdr 自体は右と下にしか分割できませんが、左と上は内部で分割＋交換に変換されるので、4方向とも使えます。
+              </dd>
+              <dt>default_split_ratio = "50:50"</dt>
+              <dd><code>"ask"</code> で <code>50:50</code> / <code>60:40</code> / <code>40:60</code> を選べる。左の数字が<em>元からあるPane</em>の取り分。</dd>
+              <dt>advanced_move = false</dt>
+              <dd>true にすると「移動先Tabのどの Pane を分割するか」を毎回選べる。既定では移動先Tabがフォーカスしている Pane が分割される。</dd>
+            </dl>
+            <pre><span class="c"># 方向とサイズを毎回選ぶようにする</span>
+[pane-manager]
+default_move_direction = <span class="p">"ask"</span>
+default_split_ratio = <span class="p">"ask"</span></pre>
+            <p class="note">Quick Move（数字キー）は設計上なにも聞きません。<code>"ask"</code> にしても即実行のままです。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 03 extract ================= -->
+    <section>
+      <div class="drill" id="d3">
+        <header>
+          <span class="num">03</span>
+          <h3>1つのPaneが育ちすぎた</h3>
+          <p class="plugin">Pane Manager · Extract</p>
+          <label class="check"><input type="checkbox" data-check="d3"> done</label>
+        </header>
+
+        <div class="beats">
+          <div class="beat">
+            <div class="label">状況</div>
+            <div class="body">
+              <p>
+                1つのTabに4つ詰まっています。右上の <code>long build</code> は10分かかるビルドで、
+                狭い枠で見るには出力が多すぎます。
+              </p>
+              <div class="figure">
+                <div>
+                  <div class="diagram d-4" role="img" aria-label="2×2。右上が long build">
+                    <div class="p">editor</div>
+                    <div class="p working star">long build</div>
+                    <div class="p">git status</div>
+                    <div class="p">log tail</div>
+                  </div>
+                  <p class="figcap">everything Tab</p>
+                </div>
+                <span class="to">→</span>
+                <div>
+                  <div class="diagram d-1" style="width:96px" role="img" aria-label="long build だけの新しいTab">
+                    <div class="p working star">long build</div>
+                  </div>
+                  <p class="figcap">新しいTab</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="beat">
+            <div class="label">準備</div>
+            <div class="body"><pre>./handson.sh setup extract</pre></div>
+          </div>
+
+          <div class="beat">
+            <div class="label">操作</div>
+            <div class="body">
+              <p><code>long build</code> にFocusを置いてから:</p>
+              <div class="chain">
+                <span class="grp"><kbd>Ctrl</kbd><kbd>B</kbd></span>
+                <span class="arrow">→</span><kbd>M</kbd>
+                <span class="arrow">→</span><kbd>E</kbd>
+                <span class="say">ピッカーも確認も出ない</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="beat">
+            <div class="label">結果</div>
+            <div class="body">
+              <p>
+                新しいTabができ、名前はPaneから自動で付きます。優先順位は
+                Pane label → Agent名 → cwd のディレクトリ名 → ターミナルタイトル。
+              </p>
+              <div class="chain">
+                <span class="say">Workspaceごと独立させる</span>
+                <span class="grp"><kbd>Ctrl</kbd><kbd>B</kbd></span><span class="arrow">→</span><kbd>M</kbd><span class="arrow">→</span><kbd>M</kbd>
+                <span class="arrow">→</span><span class="say">"review" と入力</span><span class="arrow">→</span><kbd>W</kbd>
+              </div>
+              <p class="note">
+                <strong>先に名前を打ってからキーを押すのがコツです。</strong>
+                入力した文字列がそのまま Workspace 名になります。<kbd>N</kbd> なら新規Tabで、同じく入力が名前になります。
+                ピッカーの下部に <code>+ New Tab "review"</code> と出るので、何が作られるか見えます。
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings">
+          <div class="label">設定</div>
+          <div class="body">
+            <dl>
+              <dt>auto_name_new_tab = true</dt>
+              <dd>false にすると Extract で作ったTabに名前が付かず、Herdrの連番になります。自分で <code>herdr tab rename</code> したい人向け。</dd>
+              <dt>focus_after_operation = true</dt>
+              <dd>Extract 直後に新しいTabへ移動するかどうか。false なら手元に留まったまま、裏でTabだけができます。</dd>
+            </dl>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 04 merge ================= -->
+    <section>
+      <div class="drill" id="d4">
+        <header>
+          <span class="num">04</span>
+          <h3>関係するTabが2つに分かれている</h3>
+          <p class="plugin">Pane Manager · Merge</p>
+          <label class="check"><input type="checkbox" data-check="d4"> done</label>
+        </header>
+
+        <div class="beats">
+          <div class="beat">
+            <div class="label">状況</div>
+            <div class="body">
+              <p>
+                <code>frontend</code> に vite、<code>backend</code> に api と worker が上下に並んでいます。
+                行き来が面倒なので1つのTabにまとめます。
+              </p>
+              <div class="figure">
+                <div>
+                  <div class="diagram d-2row" style="width:96px" role="img" aria-label="backend Tab は api の下に worker">
+                    <div class="p star">api</div>
+                    <div class="p star">worker</div>
+                  </div>
+                  <p class="figcap">backend</p>
+                </div>
+                <span class="to">+</span>
+                <div>
+                  <div class="diagram d-1" style="width:96px" role="img" aria-label="frontend Tab は vite だけ">
+                    <div class="p">vite</div>
+                  </div>
+                  <p class="figcap">frontend</p>
+                </div>
+                <span class="to">→</span>
+                <div>
+                  <div class="diagram d-3" role="img" aria-label="統合後。左に vite、右上に api、右下に worker">
+                    <div class="p">vite</div>
+                    <div class="p star">api</div>
+                    <div class="p star">worker</div>
+                  </div>
+                  <p class="figcap">frontend（統合後）</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="beat">
+            <div class="label">準備</div>
+            <div class="body"><pre>./handson.sh setup merge</pre></div>
+          </div>
+
+          <div class="beat">
+            <div class="label">操作</div>
+            <div class="body">
+              <p><code>backend</code> Tab のどれかのPaneにFocusを置いてから:</p>
+              <div class="chain">
+                <span class="grp"><kbd>Ctrl</kbd><kbd>B</kbd></span>
+                <span class="arrow">→</span><kbd>M</kbd>
+                <span class="arrow">→</span><kbd>C</kbd>
+                <span class="arrow">→</span><span class="say">frontend を選ぶ</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="beat">
+            <div class="label">結果</div>
+            <div class="body">
+              <p>
+                Tab全体が移動します。注目してほしいのは
+                <strong>api の下に worker という上下関係が保たれていること</strong>です。
+                3つが横一列に潰れるのではなく、元の構造ごと移籍します。
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings">
+          <div class="label">設定</div>
+          <div class="body">
+            <dl>
+              <dt>preserve_merge_layout = true</dt>
+              <dd>
+                false にすると構造を捨てて横一列に並べます。上の図で言えば vite / api / worker が3列になります。
+                どちらが良いかはTabの中身次第なので、一度 false で試してから決めてください。
+              </dd>
+              <dt>confirm_merge = false</dt>
+              <dd>true にすると統合前に確認が出ます。Merge は複数Paneが一度に動くので、慣れるまで付けておくのも手です。</dd>
+            </dl>
+            <pre><span class="c"># 構造を捨てて平らに並べる</span>
+[pane-manager]
+preserve_merge_layout = <span class="p">false</span>
+confirm_merge = <span class="p">true</span></pre>
+            <p class="note">CLI からは <code>--flatten</code> で1回だけ平らにできます。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 05 swap ================= -->
+    <section>
+      <div class="drill" id="d5">
+        <header>
+          <span class="num">05</span>
+          <h3>大事なPaneが狭い場所にいる</h3>
+          <p class="plugin">Pane Manager · Swap</p>
+          <label class="check"><input type="checkbox" data-check="d5"> done</label>
+        </header>
+
+        <div class="beats">
+          <div class="beat">
+            <div class="label">状況</div>
+            <div class="body">
+              <p>
+                左半分をまるごと <code>log tail</code> が占めていますが、実際に作業しているのは右下の
+                <code>main work</code> です。位置を交換したい。
+              </p>
+              <div class="figure">
+                <div>
+                  <div class="diagram d-3" role="img" aria-label="左が log tail、右上が notes、右下が main work">
+                    <div class="p">log tail</div>
+                    <div class="p">notes</div>
+                    <div class="p working star">main work</div>
+                  </div>
+                  <p class="figcap">交換前</p>
+                </div>
+                <span class="to">→</span>
+                <div>
+                  <div class="diagram d-3" role="img" aria-label="左が main work、右上が notes、右下が log tail">
+                    <div class="p working star">main work</div>
+                    <div class="p">notes</div>
+                    <div class="p">log tail</div>
+                  </div>
+                  <p class="figcap">交換後</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="beat">
+            <div class="label">準備</div>
+            <div class="body"><pre>./handson.sh setup swap</pre></div>
+          </div>
+
+          <div class="beat">
+            <div class="label">操作</div>
+            <div class="body">
+              <p><code>main work</code> にFocusを置いてから:</p>
+              <div class="chain">
+                <span class="grp"><kbd>Ctrl</kbd><kbd>B</kbd></span>
+                <span class="arrow">→</span><kbd>M</kbd>
+                <span class="arrow">→</span><kbd>S</kbd>
+                <span class="arrow">→</span><span class="say">log tail を選ぶ</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="beat">
+            <div class="label">結果</div>
+            <div class="body">
+              <p>2つのPaneが位置を入れ替えます。中で動いているプロセスはどちらも継続します。</p>
+              <p class="note">
+                ピッカーはTabごとにグループ化されているので、<strong>別Tab・別WorkspaceのPaneとも交換できます</strong>。
+                他のハンズオンWorkspaceのPaneを選んでみてください。Herdr の <code>pane.swap</code> は同一Tab内しか対応していないので、
+                別Tab同士のときは Pane Manager が内部で分解して実行しています。操作としては同じ1手です。
+              </p>
+              <p class="note warn">
+                <strong>自分のClaude Codeやシェルが動いているPaneは選ばないでください。</strong>
+                交換するとその Pane がハンズオンWorkspaceの中に入り、あとで <code>clean</code> の対象範囲に紛れ込みます。
+                <code>clean</code> 側でも「よそのPaneが入っているWorkspaceは閉じない」ようにしてありますが、
+                練習はハンズオンWorkspace同士で完結させるのが安全です。
+                うっかり持ち込んでしまったら <code>./handson.sh status</code> が名指しで教えてくれます。
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings">
+          <div class="label">設定</div>
+          <div class="body">
+            <dl>
+              <dt>focus_after_operation = true</dt>
+              <dd>交換後、動かしたPaneにFocusが移ります。別Tabと交換した場合はそのTabへ飛ぶということです。false なら今の場所に留まります。</dd>
+              <dt>show_agent_state = true</dt>
+              <dd>ピッカーに <code>● ! ✓ ○ ?</code> の状態記号が出ます。どのPaneでAgentが待っているかを見ながら選べます。</dd>
+              <dt>show_terminal_title = true</dt>
+              <dd>Paneの2行目に「今なにを実行しているか」が出ます。名前が似たPaneを見分けるのに効きます。</dd>
+            </dl>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 06 layout ================= -->
+    <section>
+      <div class="drill" id="d6">
+        <header>
+          <span class="num">06</span>
+          <h3>Tabの中の幅がバラバラになった</h3>
+          <p class="plugin">Layout Tools</p>
+          <label class="check"><input type="checkbox" data-check="d6"> done</label>
+        </header>
+
+        <div class="beats">
+          <div class="beat">
+            <div class="label">状況</div>
+            <div class="body">
+              <p>
+                5つのPaneが不揃いな幅で並んでいます。ここからは Pane Manager ではなく
+                <strong>Layout Tools</strong> の担当です。Tabの中の配置だけを扱います。
+              </p>
+              <div class="figure">
+                <div>
+                  <div class="diagram d-5" role="img" aria-label="5つのPaneが不揃いに並んでいる">
+                    <div class="p">pane 1</div>
+                    <div class="p">pane 5</div>
+                    <div class="p">pane 2</div>
+                    <div class="p">pane 3</div>
+                    <div class="p">pane 4</div>
+                  </div>
+                  <p class="figcap">lopsided Tab</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="beat">
+            <div class="label">準備</div>
+            <div class="body"><pre>./handson.sh setup layout</pre></div>
+          </div>
+
+          <div class="beat">
+            <div class="label">操作</div>
+            <div class="body">
+              <p>4つ続けて押して、違いを見てください。</p>
+              <div class="chain">
+                <span class="grp"><kbd>Ctrl</kbd><kbd>B</kbd></span><span class="arrow">→</span><span class="grp"><kbd>Alt</kbd><kbd>L</kbd></span>
+                <span class="arrow">→</span><kbd>E</kbd><span class="say">Equalize · 全部同じ面積に</span>
+              </div>
+              <div class="chain">
+                <span class="grp"><kbd>Ctrl</kbd><kbd>B</kbd></span><span class="arrow">→</span><span class="grp"><kbd>Alt</kbd><kbd>L</kbd></span>
+                <span class="arrow">→</span><kbd>G</kbd><span class="say">Grid · 正方形に近い格子へ</span>
+              </div>
+              <div class="chain">
+                <span class="grp"><kbd>Ctrl</kbd><kbd>B</kbd></span><span class="arrow">→</span><span class="grp"><kbd>Alt</kbd><kbd>L</kbd></span>
+                <span class="arrow">→</span><kbd>H</kbd><span class="say">Main Left · 今のPaneを主役に</span>
+              </div>
+              <div class="chain">
+                <span class="grp"><kbd>Ctrl</kbd><kbd>B</kbd></span><span class="arrow">→</span><span class="grp"><kbd>Alt</kbd><kbd>L</kbd></span>
+                <span class="arrow">→</span><kbd>Z</kbd><span class="say">Zoom · 一時的に全画面</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="beat">
+            <div class="label">結果</div>
+            <div class="body">
+              <ul class="plain">
+                <li><strong>Main Left</strong> は Agent を1つじっくり見ながら他を横目で監視する形。<kbd>L</kbd> で右、<kbd>T</kbd> で上。</li>
+                <li><strong>Grid</strong> は全部を均等に見る形。4つ以上で効きます。</li>
+                <li>すでにその配置になっている項目には <code>current</code> と出るので、押しても無駄かどうかが分かります。</li>
+                <li><strong>Zoom</strong> は配置を変えません。もう一度 <kbd>Z</kbd> で戻ります。</li>
+              </ul>
+              <p class="note">
+                Layout Tools は <code>pane.move</code> と分割比の変更だけでレイアウトを組み直します。
+                Herdr には一括でレイアウトを流し込む API もありますが、あれは Pane を作り直してしまい
+                中のプロセスが死ぬので使っていません。
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings">
+          <div class="label">設定</div>
+          <div class="body">
+            <p style="margin:0;color:var(--ink-soft)">
+              <strong>Layout Tools に設定はありません。</strong>
+              どの配置にするかを毎回自分で選ぶので、既定値を持つ意味がないからです。
+              設定があるのは4つのうち Pane Manager だけです。
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 07 navigator ================= -->
+    <section>
+      <div class="drill" id="d7">
+        <header>
+          <span class="num">07</span>
+          <h3>目的のPaneが見つからない</h3>
+          <p class="plugin">Navigator · Command Palette</p>
+          <label class="check"><input type="checkbox" data-check="d7"> done</label>
+        </header>
+
+        <div class="beats">
+          <div class="beat">
+            <div class="label">状況</div>
+            <div class="body">
+              <p>
+                Workspaceが2つ、Tabが合わせて8つ。そのどこかに
+                <code>遠くの codex</code> という blocked のPaneがあります。手当たり次第に探さずに飛びます。
+              </p>
+            </div>
+          </div>
+
+          <div class="beat">
+            <div class="label">準備</div>
+            <div class="body"><pre>./handson.sh setup navigator</pre></div>
+          </div>
+
+          <div class="beat">
+            <div class="label">操作</div>
+            <div class="body">
+              <div class="chain">
+                <span class="grp"><kbd>Ctrl</kbd><kbd>B</kbd></span>
+                <span class="arrow">→</span><kbd>F</kbd>
+                <span class="arrow">→</span><kbd>Tab</kbd><span class="say">Agent検索に切り替え</span>
+                <span class="arrow">→</span><span class="say">"codex" と入力</span>
+                <span class="arrow">→</span><kbd>Enter</kbd>
+              </div>
+              <p class="note">
+                <kbd>Tab</kbd> を押すたびに検索対象が Pane → Agent → Tab → Workspace と一巡します。
+                探しているものの種類が分かっていれば、それに合わせて切り替えるのが速い。
+              </p>
+            </div>
+          </div>
+
+          <div class="beat">
+            <div class="label">結果</div>
+            <div class="body">
+              <p>
+                Focusだけが移動します。<strong>Navigator は何も動かしません。</strong>
+                Gather が「連れてくる」操作なのに対して、こちらは「見に行く」操作です。
+                作業中のレイアウトを崩したくないときはこちら。
+              </p>
+              <div class="chain">
+                <span class="say">キーを忘れたら</span>
+                <span class="grp"><kbd>Ctrl</kbd><kbd>B</kbd></span><span class="arrow">→</span><span class="grp"><kbd>Alt</kbd><kbd>P</kbd></span>
+                <span class="arrow">→</span><span class="say">"gath" と入力</span>
+              </div>
+              <p class="note">
+                Command Palette には全プラグインのActionが出ます。<code>pane mo</code> で
+                <code>Pane Manager: Move to Tab...</code>、<code>gath</code> で Gather 系が4つ。
+                対象になるのは <strong>Paletteを開いた時点でフォーカスしていたPane</strong> で、Palette 自身ではありません。
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings">
+          <div class="label">設定</div>
+          <div class="body">
+            <p style="margin:0;color:var(--ink-soft)">
+              <strong>Navigator にも Command Palette にも設定はありません。</strong>
+              Navigator は打って飛ぶだけ、Command Palette は他のプラグインが公開しているものを並べるだけなので、
+              決めておくことがありません。プラグインを1つ追加すれば、設定なしで Palette に出てきます。
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 設定一覧 ================= -->
+    <section id="ref">
+      <h2 class="sec">設定一覧</h2>
+      <p class="sec-note">
+        置き場所は <code>herdr plugin config-dir pane-manager</code> が出すディレクトリの <code>config.toml</code>。
+        全部省略可能で、下が既定値です。壊れていても既定値で動き、オーバーレイの末尾に警告が出るだけで操作は止まりません。
+      </p>
+
+      <div class="tablewrap" style="margin-bottom:20px">
+        <table>
+          <caption class="sr-only">Pane Manager の設定</caption>
+          <thead><tr><th>キー</th><th>既定値</th><th>効果</th></tr></thead>
+          <tbody>
+            <tr><td class="k">default_move_direction</td><td class="v">"right"</td><td>移動先での置き方。<code>right</code> / <code>down</code> / <code>left</code> / <code>up</code> / <code>ask</code></td></tr>
+            <tr><td class="k">default_split_ratio</td><td class="v">"50:50"</td><td>面積の分け方。<code>50:50</code> / <code>60:40</code> / <code>40:60</code> / <code>ask</code></td></tr>
+            <tr><td class="k">focus_after_operation</td><td class="v">true</td><td>操作した Pane に Focus を移す</td></tr>
+            <tr><td class="k">advanced_move</td><td class="v">false</td><td>移動先 Tab のどの Pane を分割するか毎回選ぶ</td></tr>
+            <tr><td class="k">preserve_merge_layout</td><td class="v">true</td><td>Merge で元 Tab の分割構造を保つ</td></tr>
+            <tr><td class="k">auto_name_new_tab</td><td class="v">true</td><td>Extract した Tab を Pane 名から命名</td></tr>
+            <tr><td class="k">show_agent_state</td><td class="v">true</td><td>ピッカーに <code>● ! ✓ ○ ?</code> を出す</td></tr>
+            <tr><td class="k">show_terminal_title</td><td class="v">true</td><td>Pane の2行目に実行中の内容を出す</td></tr>
+            <tr><td class="k">confirm_merge</td><td class="v">false</td><td>Merge 前に確認する</td></tr>
+            <tr><td class="k">show_ids</td><td class="v">false</td><td><code>w1:p3</code> をピッカーに出す（デバッグ用）</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>[pane-manager.gather]</th><th>既定値</th><th>効果</th></tr></thead>
+          <tbody>
+            <tr><td class="k">statuses</td><td class="v">["blocked","done","working"]</td><td>集約する Agent の状態</td></tr>
+            <tr><td class="k">max_panes_per_tab</td><td class="v">4</td><td>1 Tab あたりの Pane 数（2 / 3 / 4）</td></tr>
+            <tr><td class="k">scope</td><td class="v">"workspace"</td><td>探す範囲。<code>workspace</code> / <code>all</code></td></tr>
+            <tr><td class="k">focus_highest_priority</td><td class="v">true</td><td>Gather 後に最優先 Agent へ Focus</td></tr>
+            <tr><td class="k">agents</td><td class="v">[]</td><td>Agent 種別で絞る（空 = すべて）</td></tr>
+            <tr><td class="k">tab_label</td><td class="v">"Active Agents"</td><td>生成する Tab の名前</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ================= 片付け ================= -->
+    <section id="end">
+      <h2 class="sec">片付けと、つまずいたとき</h2>
+
+      <div class="drill">
+        <div class="beats">
+          <div class="beat">
+            <div class="label">片付け</div>
+            <div class="body">
+              <pre>./handson.sh clean</pre>
+              <p class="note">
+                Gather したまま片付けても大丈夫です。閉じられたPaneは Restore のときに
+                「closed while gathered」として報告され、残りのPaneはちゃんと元の場所に戻ります。
+              </p>
+              <p class="note">
+                <strong>閉じられなかったWorkspaceがあると、理由を名指しで出します。</strong>
+                よくあるのは2つ。よそのPaneが入っている場合は、そのPaneを別のWorkspaceへ移してからもう一度。
+                スクリプト自身が動いているWorkspaceだった場合は、別のWorkspaceのシェルから実行し直してください
+                （自分の足元を閉じると、そこでシェルごと止まって残りが片付きません）。
+              </p>
+            </div>
+          </div>
+
+          <div class="beat">
+            <div class="label">困ったら</div>
+            <div class="body">
+              <ul class="plain">
+                <li><strong>どの画面も <kbd>Q</kbd> / <kbd>Esc</kbd> で何もせず閉じます。</strong></li>
+                <li><kbd>J</kbd> <kbd>K</kbd> は常にカーソル移動です。方向を選ぶ画面だけは
+                    <kbd>H</kbd> <kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd> の4つとも方向になります。</li>
+                <li>一覧が画面に収まらないときは自動でスクロールし、右下に
+                    <code>↑ 3   ↓ 12</code> のように残りの件数が出ます。</li>
+                <li>操作が失敗したら <kbd>R</kbd> で最新状態を取り直してやり直せます。Herdr 側で状況が変わっていた場合です。</li>
+                <li>集まる数が想定と違う → <code>./handson.sh status</code> の「Gatherが今すぐ拾う数」を見る。</li>
+                <li><code>done</code> が消えている → <code>./handson.sh arm &lt;名前&gt;</code>（Tabを開くと消えます）。</li>
+                <li>今どうなっているか分からない → <code>./handson.sh status</code>。</li>
+                <li>プラグイン側から見えている状態を知りたい →
+                  <code>~/src/herdr-plugins/herdr-pane-manager/target/release/herdr-pane-manager doctor</code>。
+                  全 Workspace / Tab / Pane の構造と、集約セッションの中身が ID 付きで出ます。</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="beat">
+            <div class="label">覚え方</div>
+            <div class="body">
+              <p>
+                全部を一度に覚える必要はありません。<kbd>Ctrl</kbd><kbd>B</kbd> <kbd>M</kbd> と
+                <kbd>Ctrl</kbd><kbd>B</kbd> <kbd>F</kbd> の2つだけ体に入れば、残りはオーバーレイに全部書いてあります。
+              </p>
+              <div class="tablewrap">
+                <table>
+                  <thead><tr><th>段階</th><th>覚えるもの</th><th>得られること</th></tr></thead>
+                  <tbody>
+                    <tr><td class="v">1日目</td><td class="k">prefix+m → 1…9</td><td>Pane移動が一瞬になる</td></tr>
+                    <tr><td class="v">2日目</td><td class="k">prefix+m → g / r</td><td>Agentの取りこぼしがなくなる</td></tr>
+                    <tr><td class="v">3日目</td><td class="k">prefix+f</td><td>Pane探しで迷わなくなる</td></tr>
+                    <tr><td class="v">4日目</td><td class="k">prefix+alt+l → e / z</td><td>画面が読みやすくなる</td></tr>
+                    <tr><td class="v">以降</td><td class="k">m / s / e / j、prefix+alt+p</td><td>細かい整理ができる</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="end">
+    herdr-plugins · pane-manager / layout-tools / navigator / command-palette ·
+    どの操作も pane.move ベースで、中のプロセスは再起動されません
+  </footer>
+
+</div>
+
+<script>
+  (function () {
+    var KEY = "herdr-handson-progress";
+    var boxes = Array.prototype.slice.call(document.querySelectorAll("[data-check]"));
+    var tally = document.getElementById("tally");
+
+    function read() {
+      try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) { return {}; }
+    }
+    function write(state) {
+      try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* 保存できなくても動く */ }
+    }
+
+    function paint() {
+      var state = read();
+      var count = 0;
+      boxes.forEach(function (box) {
+        var id = box.getAttribute("data-check");
+        var on = !!state[id];
+        box.checked = on;
+        if (on) count++;
+        var card = document.getElementById(id);
+        if (card) card.classList.toggle("cleared", on);
+        var link = document.querySelector('.rail a[data-drill="' + id + '"]');
+        if (link) link.classList.toggle("cleared", on);
+      });
+      tally.textContent = count + " / " + boxes.length + " 完了";
+    }
+
+    boxes.forEach(function (box) {
+      box.addEventListener("change", function () {
+        var state = read();
+        state[box.getAttribute("data-check")] = box.checked;
+        write(state);
+        paint();
+      });
+    });
+
+    paint();
+
+    // 読んでいる場所をレールに反映する
+    var targets = Array.prototype.slice.call(
+      document.querySelectorAll("section[id], .drill[id]")
+    );
+    var links = {};
+    Array.prototype.forEach.call(document.querySelectorAll(".rail a"), function (a) {
+      links[a.getAttribute("href").slice(1)] = a;
+    });
+
+    if ("IntersectionObserver" in window) {
+      var seen = {};
+      var observer = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          seen[entry.target.id] = entry.isIntersecting;
+        });
+        var current = null;
+        targets.forEach(function (t) { if (seen[t.id] && !current) current = t.id; });
+        Object.keys(links).forEach(function (id) {
+          links[id].classList.toggle("on", id === current);
+        });
+      }, { rootMargin: "-10% 0px -70% 0px" });
+      targets.forEach(function (t) { observer.observe(t); });
+    }
+  })();
+</script>

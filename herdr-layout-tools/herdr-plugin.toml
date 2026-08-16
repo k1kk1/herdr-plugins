@@ -1,0 +1,79 @@
+id = "layout-tools"
+name = "Layout Tools"
+version = "0.1.0"
+min_herdr_version = "0.8.0"
+description = "Arrange the panes inside a tab — equalize, grid, columns, rows, main-left/right/top"
+platforms = ["macos", "linux"]
+
+[[build]]
+command = ["cargo", "build", "--release"]
+
+[[panes]]
+id = "layout"
+title = "Layout Tools"
+description = "Rearrange the panes in this tab"
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-layout-tools" ui']
+placement = "popup"
+width = "50%"
+height = "60%"
+
+# ---------------------------------------------------------------------------
+# Actions. `equalize` and each named arrangement run headless and immediately;
+# `open` raises the menu.
+# ---------------------------------------------------------------------------
+
+[[actions]]
+id = "open"
+title = "Layout Tools"
+description = "Open the Layout Tools menu for this tab"
+contexts = ["pane", "tab", "global"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-layout-tools" launch']
+
+[[actions]]
+id = "equalize"
+title = "Equalize Layout"
+description = "Give every pane in this tab the same share of space"
+contexts = ["pane", "tab"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-layout-tools" equalize']
+
+[[actions]]
+id = "grid"
+title = "Layout: Grid"
+description = "Arrange the panes of this tab in a balanced grid"
+contexts = ["pane", "tab"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-layout-tools" arrange grid']
+
+[[actions]]
+id = "columns"
+title = "Layout: Columns"
+description = "Put every pane of this tab side by side"
+contexts = ["pane", "tab"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-layout-tools" arrange columns']
+
+[[actions]]
+id = "rows"
+title = "Layout: Rows"
+description = "Stack every pane of this tab"
+contexts = ["pane", "tab"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-layout-tools" arrange rows']
+
+[[actions]]
+id = "main-left"
+title = "Layout: Main Left"
+description = "Current pane down the left, the rest stacked on the right"
+contexts = ["pane", "tab"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-layout-tools" arrange main-left']
+
+[[actions]]
+id = "main-right"
+title = "Layout: Main Right"
+description = "Current pane down the right, the rest stacked on the left"
+contexts = ["pane", "tab"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-layout-tools" arrange main-right']
+
+[[actions]]
+id = "main-top"
+title = "Layout: Main Top"
+description = "Current pane across the top, the rest in a row below"
+contexts = ["pane", "tab"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-layout-tools" arrange main-top']

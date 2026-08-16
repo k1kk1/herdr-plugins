@@ -1,0 +1,46 @@
+id = "navigator"
+name = "Navigator"
+version = "0.1.0"
+min_herdr_version = "0.8.0"
+description = "Find and jump to any pane, tab or workspace by typing part of its name"
+platforms = ["macos", "linux"]
+
+[[build]]
+command = ["cargo", "build", "--release"]
+
+[[panes]]
+id = "navigator"
+title = "Navigator"
+description = "Jump to a pane, tab or workspace"
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-navigator" ui']
+placement = "popup"
+width = "70%"
+height = "70%"
+
+[[actions]]
+id = "open"
+title = "Go to Pane..."
+description = "Search every pane in the session and jump to one"
+contexts = ["global", "pane"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-navigator" launch panes']
+
+[[actions]]
+id = "agents"
+title = "Go to Agent..."
+description = "Search the panes running an agent and jump to one"
+contexts = ["global", "pane"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-navigator" launch agents']
+
+[[actions]]
+id = "tabs"
+title = "Go to Tab..."
+description = "Search every tab in the session and jump to one"
+contexts = ["global", "tab"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-navigator" launch tabs']
+
+[[actions]]
+id = "workspaces"
+title = "Go to Workspace..."
+description = "Search every workspace and jump to one"
+contexts = ["global", "workspace"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-navigator" launch workspaces']

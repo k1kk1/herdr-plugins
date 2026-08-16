@@ -1,0 +1,7 @@
+# Herdr Command Palette has no settings yet.
+#
+# Its operations are all explicit — it lists what other plugins expose —
+# so there is nothing to configure. This file is a placeholder so the location
+# is discoverable:
+#
+#   herdr plugin config-dir command-palette

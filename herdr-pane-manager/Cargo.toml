@@ -1,0 +1,26 @@
+[package]
+name = "herdr-pane-manager"
+version = "0.1.0"
+edition = "2021"
+description = "Move / Swap / Extract / Merge Herdr panes across tabs without restarting processes"
+license = "MIT"
+
+[[bin]]
+name = "herdr-pane-manager"
+path = "src/main.rs"
+
+[dependencies]
+herdr-plugin-kit = { path = "../herdr-plugin-kit" }
+anyhow = "1"
+crossterm = "0.29"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+toml = "1"
+
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true
+panic = "abort"

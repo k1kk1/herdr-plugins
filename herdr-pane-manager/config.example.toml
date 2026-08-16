@@ -1,0 +1,81 @@
+# Herdr Pane Manager settings.
+#
+# Copy to the path printed by:
+#   herdr plugin config-dir pane-manager
+#
+# Every key is optional; the values below are the defaults.
+
+[pane-manager]
+# Where a moved pane lands relative to the pane it joins.
+#   "right" | "down" | "left" | "up" | "ask"
+# Left and Up are built from a right/down split plus a swap; you never see it.
+# "ask" adds a direction step to the pickers. Quick Move and the headless
+# commands cannot ask, so they fall back to "right".
+default_move_direction = "right"
+
+# How the two panes share the space, written as
+#   pane already there : pane being placed
+#   "50:50" | "60:40" | "40:60" | "ask"
+default_split_ratio = "50:50"
+
+# Focus the pane an operation acted on once it finishes.
+focus_after_operation = true
+
+# Always ask which pane in the destination tab to split. Off means Herdr
+# splits that tab's own focused pane, which is what Quick Move does.
+advanced_move = false
+
+# Keep the source tab's split structure when merging, so a two-over-one
+# arrangement arrives as a two-over-one group instead of a flat row.
+preserve_merge_layout = true
+
+# Name tabs created by Extract after the pane inside them.
+# Priority: what you typed in the picker → pane label → terminal title →
+# cwd basename → agent name.
+auto_name_new_tab = true
+
+# Show the agent state glyph and label in pickers:
+#   ● working   ! blocked   ✓ done   ○ idle   ? unknown
+show_agent_state = true
+
+# Show what each pane is currently doing (its terminal title) under its name.
+show_terminal_title = true
+
+# Ask before merging a tab. Off by default: merging does not stop any process.
+confirm_merge = false
+
+# Show raw Herdr ids (w1:p3) in pickers. Debugging only.
+show_ids = false
+
+# --- Active Agent Gather ----------------------------------------------------
+# Collecting the agents that need attention into tabs of their own.
+#
+# Gather only ever runs because you asked it to — from the overlay (g), from a
+# plugin action, or from the CLI. Nothing here makes panes move on their own.
+
+[pane-manager.gather]
+# Agent states worth collecting, most urgent first.
+#   "blocked" | "done" | "working" | "idle" | "unknown"
+# Panes Herdr has not detected an agent in are never candidates.
+statuses = ["blocked", "done", "working"]
+
+# Agents per Gather tab: 2, 3 or 4.
+#   2 → side by side
+#   3 → the top agent down the left, the other two stacked on the right
+#   4 → a 2x2 grid filled left to right, top to bottom
+# More agents than this means more Gather tabs, numbered in priority order.
+max_panes_per_tab = 4
+
+# How far to look: "workspace" (the focused one) or "all".
+scope = "workspace"
+
+# Focus the most urgent agent once the Gather finishes.
+focus_highest_priority = true
+
+# Restrict to certain agent kinds, e.g. ["codex", "claude"].
+# Empty means every kind.
+agents = []
+
+# Name of the tabs Gather creates. When one tab is enough it is used as
+# written; when more are needed they are numbered "Active Agents 1", "2", ...
+tab_label = "Active Agents"

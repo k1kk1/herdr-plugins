@@ -1,0 +1,12 @@
+# Rust のビルド成果物。プラグインごとに target/ を持つので合計 1.6GB になる。
+target/
+
+# ハンズオンが書く、擬似 Agent の状態とシナリオ台帳
+handson/.state/
+
+# 検証中に作った一時ファイル
+*.png
+.playwright-mcp/
+
+# macOS
+.DS_Store
