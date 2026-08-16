@@ -14,6 +14,7 @@ use herdr_plugin_kit::herdr::{Direction, Herdr, Layout};
 use herdr_plugin_kit::{anyhow, Context, Outcome, Result};
 
 use crate::arrange::{Arrangement, Plan, Shape};
+use crate::template::{self, Template};
 
 /// Even out every split in a tab so all panes get the same area.
 ///
@@ -170,4 +171,74 @@ fn rebuild_plan_from(layout: &Layout) -> Option<Plan> {
     // Deriving the plan from the shape restores the original nesting exactly,
     // not just the original set of panes.
     Some(Plan::from_shape(&shape))
+}
+
+// ---------------------------------------------------------------------------
+// Saved layouts
+// ---------------------------------------------------------------------------
+
+/// Remember the current tab's shape under a name.
+pub fn save_layout(herdr: &Herdr, tab_id: &str, name: &str) -> Result<Outcome> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(anyhow!("A saved layout needs a name."));
+    }
+    let layout = herdr
+        .layout(tab_id)
+        .with_context(|| "Could not read the layout of this tab.")?;
+
+    let template = Template::from_layout(&layout.root);
+    let existed = template::load().contains_key(name);
+    template::save(name, &template)?;
+
+    Ok(Outcome::new(if existed {
+        format!("Replaced the saved layout \"{name}\"")
+    } else {
+        format!("Saved this layout as \"{name}\"")
+    })
+    .with_detail(template.describe()))
+}
+
+/// Put the current tab's panes into a saved shape.
+pub fn apply_layout(herdr: &Herdr, tab_id: &str, name: &str) -> Result<Outcome> {
+    let Some(template) = template::load().get(name).cloned() else {
+        return Err(anyhow!("There is no saved layout called \"{name}\"."));
+    };
+    let layout = herdr
+        .layout(tab_id)
+        .with_context(|| "Could not read the layout of this tab.")?;
+    let panes = layout.root.pane_ids();
+
+    // Refuses when the counts differ, naming both, rather than guessing which
+    // pane to drop or where an extra one should go.
+    let plan = template.plan(&panes)?;
+
+    let already = Shape::from_layout(&layout.root)
+        .map(|current| current == plan.simulate())
+        .unwrap_or(false);
+    if !already {
+        rebuild(herdr, tab_id, &plan, &layout)?;
+    }
+
+    // The shape is right but every split lands at 0.5, so the saved
+    // proportions are put back explicitly.
+    for (path, ratio) in template.ratios() {
+        let _ = herdr.set_split_ratio(tab_id, &path, ratio);
+    }
+
+    if let Some(focused) = &layout.focused_pane_id {
+        let _ = herdr.focus_pane(focused);
+    }
+
+    Ok(Outcome::new(format!("Applied the layout \"{name}\""))
+        .with_detail(template.describe()))
+}
+
+/// Forget a saved layout.
+pub fn forget_layout(name: &str) -> Result<Outcome> {
+    if template::remove(name)? {
+        Ok(Outcome::new(format!("Deleted the saved layout \"{name}\"")))
+    } else {
+        Err(anyhow!("There is no saved layout called \"{name}\"."))
+    }
 }

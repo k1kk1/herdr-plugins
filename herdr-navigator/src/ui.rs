@@ -121,8 +121,9 @@ fn pick(
 fn build(herdr: &Herdr, scope: Scope, current: Option<&Pane>) -> Result<Menu<String>> {
     let mut menu = Menu::new(scope.title())
         .subtitle("Type to filter · Tab changes what is listed")
-        .footer("↑↓ move · Enter jump · Tab scope · Esc cancel")
-        .filterable();
+        .footer("type to filter · 1-9 jump · ↑↓ move · Enter jump · Tab scope · Esc cancel")
+        .filterable()
+        .numbered();
 
     let workspaces = herdr.workspaces()?;
 

@@ -12,12 +12,16 @@ use herdr_plugin_kit::{Outcome, Result};
 
 use crate::arrange::{Arrangement, Shape};
 use crate::ops;
+use crate::template;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum Choice {
     Equalize,
     Zoom,
     Arrange(Arrangement),
+    Apply(String),
+    Save,
+    Forget,
     Cancel,
 }
 
@@ -96,6 +100,39 @@ fn menu(
         );
     }
 
+    let saved = template::load();
+    if !saved.is_empty() {
+        menu.row(Row::separator());
+        menu.row(Row::header("Saved"));
+        for (name, layout) in &saved {
+            // A layout only fits a tab with the same number of panes, so say
+            // so up front rather than failing after the user picks it.
+            let note = if layout.slots() == panes.len() {
+                layout.describe()
+            } else {
+                format!("{} — needs {} here", layout.describe(), panes.len())
+            };
+            menu.item(
+                Row::item(name.clone()).secondary(note),
+                Choice::Apply(name.clone()),
+            );
+        }
+    }
+
+    menu.row(Row::separator());
+    menu.item(
+        Row::item("Save this layout")
+            .hotkey("s")
+            .secondary("remember the current shape under a name"),
+        Choice::Save,
+    );
+    if !saved.is_empty() {
+        menu.item(
+            Row::item("Delete a saved layout").hotkey("d"),
+            Choice::Forget,
+        );
+    }
+
     menu.row(Row::separator());
     menu.item(Row::item("Cancel").hotkey("q"), Choice::Cancel);
 
@@ -116,5 +153,65 @@ fn menu(
         Choice::Arrange(arrangement) => {
             ops::arrange(herdr, tab_id, arrangement, Some(&source.pane_id)).map(Some)
         }
+        Choice::Apply(name) => ops::apply_layout(herdr, tab_id, &name).map(Some),
+        Choice::Save => match ask_name(term)? {
+            Some(name) => ops::save_layout(herdr, tab_id, &name).map(Some),
+            None => Ok(None),
+        },
+        Choice::Forget => match pick_saved(term)? {
+            Some(name) => ops::forget_layout(&name).map(Some),
+            None => Ok(None),
+        },
     }
+}
+
+
+/// Ask what to call the layout being saved.
+///
+/// The picker's own query line doubles as the text field: whatever is typed
+/// becomes the name, the same way Pane Manager names a new tab.
+fn ask_name(term: &mut Term) -> Result<Option<String>> {
+    let existing = template::load();
+    let mut menu: Menu<String> = Menu::new("Save this layout as")
+        .subtitle("type a name, then Enter")
+        .footer("type a name · Enter save · Esc cancel")
+        .filterable();
+
+    menu.item_pinned(Row::item("Save as {query}").hotkey("↵"), String::new());
+    if !existing.is_empty() {
+        menu.row(Row::separator());
+        menu.row(Row::header("Replace an existing one"));
+        for (name, layout) in &existing {
+            menu.item(
+                Row::item(name.clone()).secondary(layout.describe()),
+                name.clone(),
+            );
+        }
+    }
+
+    let Some(chosen) = menu.run(term)? else {
+        return Ok(None);
+    };
+    // The pinned row carries an empty value, meaning "use what was typed".
+    let name = if chosen.is_empty() {
+        menu.query().trim().to_string()
+    } else {
+        chosen
+    };
+    Ok((!name.is_empty()).then_some(name))
+}
+
+/// Choose a saved layout to delete.
+fn pick_saved(term: &mut Term) -> Result<Option<String>> {
+    let saved = template::load();
+    let mut menu: Menu<String> = Menu::new("Delete which saved layout?")
+        .footer("↑↓ move · Enter delete · q / Esc cancel")
+        .numbered();
+    for (name, layout) in &saved {
+        menu.item(
+            Row::item(name.clone()).secondary(layout.describe()),
+            name.clone(),
+        );
+    }
+    menu.run(term)
 }

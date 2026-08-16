@@ -8,7 +8,7 @@ Codex / Claude / dev server / log tail は、移動・交換・統合・集約�
 | プラグイン | 責務 | 既定キー | Action数 |
 |---|---|---|---|
 | [herdr-pane-manager](herdr-pane-manager/) | Pane が **どの Tab に属するか** | `prefix+m` | 21 |
-| [herdr-layout-tools](herdr-layout-tools/) | Tab の **中のどこに置くか** | `prefix+alt+l` | 8 |
+| [herdr-layout-tools](herdr-layout-tools/) | Tab の **中のどこに置くか** | `prefix+alt+l` | 10 |
 | [herdr-navigator](herdr-navigator/) | **探して飛ぶ**（何も動かさない） | `prefix+f` | 4 |
 | [herdr-command-palette](herdr-command-palette/) | 全プラグインの Action を横断検索 | `prefix+alt+p` | 1 |
 | [herdr-plugin-kit](herdr-plugin-kit/) | 共有ライブラリ（socket client / 表示名 / split tree / TUI） | — | — |
@@ -37,6 +37,9 @@ Codex / Claude / dev server / log tail は、移動・交換・統合・集約�
 
 Equalize / Grid / Columns / Rows / Main Left / Main Right / Main Top / Zoom。
 同一 Tab 内だけを扱い、Pane Manager とは責務が重なりません。
+
+**保存レイアウト** — 今の形に名前を付けて保存し、あとで比率ごと復元できます。
+Pane ID は保存しないので、同じ Pane 数の別 Tab にも適用できます。
 
 ### Navigator
 
@@ -143,7 +146,7 @@ for p in herdr-plugin-kit herdr-pane-manager herdr-layout-tools herdr-navigator 
 done
 ```
 
-現在 116 テスト。分割ツリーの組み立て・表示幅・fuzzy 検索・スクロール計算など、
+現在 126 テスト。分割ツリーの組み立て・表示幅・fuzzy 検索・スクロール計算など、
 壊れると画面で気づきにくいものを中心に単体テストにしています。
 
 `herdr-plugin-kit` は path dependency で参照しています。cargo workspace には**していません** —

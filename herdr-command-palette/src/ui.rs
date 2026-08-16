@@ -74,8 +74,9 @@ fn pick(
 
     let mut menu = Menu::new("Command Palette")
         .subtitle(subtitle)
-        .footer("↑↓ move · Enter run · Esc cancel")
-        .filterable();
+        .footer("type to filter · 1-9 run · ↑↓ move · Enter run · Esc cancel")
+        .filterable()
+        .numbered();
 
     let mut current_plugin: Option<&str> = None;
     for action in &actions {

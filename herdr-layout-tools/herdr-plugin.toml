@@ -77,3 +77,20 @@ title = "Layout: Main Top"
 description = "Current pane across the top, the rest in a row below"
 contexts = ["pane", "tab"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-layout-tools" arrange main-top']
+
+# 保存レイアウト。名前が要るので save/apply はメニュー経由が基本だが、
+# スクリプトから決め打ちで呼べるよう Action も公開しておく。
+
+[[actions]]
+id = "save-layout"
+title = "Save This Layout..."
+description = "Remember this tab's shape under a name"
+contexts = ["tab", "pane"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-layout-tools" launch']
+
+[[actions]]
+id = "layouts"
+title = "Saved Layouts"
+description = "Apply, save or delete a saved layout"
+contexts = ["global", "tab"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-layout-tools" launch']

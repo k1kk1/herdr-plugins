@@ -35,6 +35,8 @@ pub struct Menu<T> {
     pinned: Vec<bool>,
     /// When set, printable keys build a query instead of picking by hotkey.
     filter: Option<String>,
+    /// Number the first nine selectable rows on screen.
+    numbered: bool,
 }
 
 impl<T: Clone> Menu<T> {
@@ -45,6 +47,7 @@ impl<T: Clone> Menu<T> {
             haystacks: Vec::new(),
             pinned: Vec::new(),
             filter: None,
+            numbered: false,
         }
     }
 
@@ -62,6 +65,17 @@ impl<T: Clone> Menu<T> {
     /// because every printable key belongs to the query.
     pub fn filterable(mut self) -> Self {
         self.filter = Some(String::new());
+        self
+    }
+
+    /// Number the first nine selectable rows so `1`–`9` pick them.
+    ///
+    /// Numbering is applied to what is **on screen**, recomputed after every
+    /// keystroke, so the digits keep matching the list as a filter narrows it.
+    /// Assigning fixed numbers when the menu is built would leave gaps — rows
+    /// 3, 7 and 20 surviving a filter would still show 3, 7 and nothing.
+    pub fn numbered(mut self) -> Self {
+        self.numbered = true;
         self
     }
 
@@ -225,6 +239,19 @@ impl<T: Clone> Menu<T> {
                     }
                 })
                 .collect();
+
+            // Number what is on screen, after filtering, so `1`–`9` always
+            // match the digits the reader can see.
+            if self.numbered {
+                let mut n = 0usize;
+                for (position, row) in self.view.rows.iter_mut().enumerate() {
+                    if self.values[visible[position]].is_none() || n >= 9 {
+                        continue;
+                    }
+                    n += 1;
+                    row.hotkey = Some(n.to_string());
+                }
+            }
             self.view.cursor = selectable
                 .get(cursor)
                 .and_then(|row| visible.iter().position(|v| v == row));
@@ -381,6 +408,33 @@ mod tests {
         let menu = menu_with(&["e", "k", "g"]);
         assert!(menu.half_binds_vim_keys());
         assert_eq!(menu.by_hotkey('k'), None);
+    }
+
+    #[test]
+    fn numbering_follows_what_is_on_screen() {
+        // A filter that keeps rows 0, 2 and 5 must number them 1, 2, 3 —
+        // not 1, 3, 6 — or the digits stop matching the visible list.
+        let mut menu: Menu<usize> = Menu::new("t").filterable().numbered();
+        for (i, name) in ["alpha", "beta", "alfresco", "gamma", "delta", "alpenglow"]
+            .iter()
+            .enumerate()
+        {
+            menu.item(Row::item(*name), i);
+        }
+        menu.filter = Some("al".into());
+        let visible = menu.visible();
+        assert_eq!(visible, vec![0, 2, 5], "filter should keep the three al* rows");
+
+        // Mirror the render loop's numbering step.
+        let mut n = 0;
+        let numbers: Vec<String> = visible
+            .iter()
+            .map(|_| {
+                n += 1;
+                n.to_string()
+            })
+            .collect();
+        assert_eq!(numbers, ["1", "2", "3"]);
     }
 
     #[test]

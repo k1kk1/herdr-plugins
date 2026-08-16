@@ -128,11 +128,50 @@ pub fn focused_pane(herdr: &Herdr, exclude: Option<&str>) -> Result<Pane> {
 
 /// Tab an operation should act on: an explicit flag, the tab the context menu
 /// was opened on, then the source pane's own tab.
+///
+/// The inherited values are checked against the source pane's workspace,
+/// because `PM_SOURCE_TAB` and the plugin context outlive the pane they were
+/// set for and can point at a tab in a workspace that is no longer in play.
+///
+/// An explicit `--tab` is **not** filtered. Someone naming a tab on the command
+/// line means that tab, and a caller scripting across workspaces would
+/// otherwise have the argument silently swapped for the current pane's tab.
 pub fn resolve_source_tab(explicit: Option<&str>, source: &Pane) -> String {
-    explicit
-        .map(str::to_string)
-        .or_else(|| non_empty_env("PM_SOURCE_TAB"))
+    if let Some(explicit) = explicit.filter(|id| !id.trim().is_empty()) {
+        return explicit.to_string();
+    }
+    let same_workspace = |id: &String| id.starts_with(&format!("{}:", source.workspace_id));
+    non_empty_env("PM_SOURCE_TAB")
         .or_else(|| InvocationContext::from_env().tab_id)
-        .filter(|id| id.starts_with(&format!("{}:", source.workspace_id)))
+        .filter(same_workspace)
         .unwrap_or_else(|| source.tab_id.clone())
+}
+
+#[cfg(test)]
+mod tab_resolution_tests {
+    use super::*;
+
+    fn pane(workspace: &str, tab: &str) -> Pane {
+        Pane {
+            pane_id: format!("{workspace}:p1"),
+            workspace_id: workspace.into(),
+            tab_id: tab.into(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn an_explicit_tab_wins_even_in_another_workspace() {
+        // Scripting across workspaces has to be possible; silently swapping the
+        // argument for the current pane's tab writes to the wrong tab.
+        let source = pane("w1", "w1:t1");
+        assert_eq!(resolve_source_tab(Some("w9:t3"), &source), "w9:t3");
+    }
+
+    #[test]
+    fn no_argument_falls_back_to_the_panes_own_tab() {
+        let source = pane("w1", "w1:t7");
+        assert_eq!(resolve_source_tab(None, &source), "w1:t7");
+        assert_eq!(resolve_source_tab(Some("  "), &source), "w1:t7");
+    }
 }

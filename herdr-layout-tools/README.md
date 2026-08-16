@@ -66,6 +66,8 @@ r  Rows
 h  Main Left
 l  Main Right
 t  Main Top
+s  Save this layout
+d  Delete a saved layout
 q / Esc  Cancel
 ```
 
@@ -74,7 +76,38 @@ q / Esc  Cancel
 `j` `k` は常にカーソル移動です。Main Top は以前 `k` でしたが、`k` を押すと
 配置が変わってしまい上へ移動できなかったため `t` に変えました。
 
-### 右クリック
+### 保存レイアウト
+
+現在の Tab の形に名前を付けて保存し、あとで戻せます。
+**Pane ID は保存しません**。保存されるのは「分割の木・向き・比率」だけなので、
+同じ Pane 数の別 Tab にも適用できます。
+
+```
+prefix+alt+l  →  s  →  名前を入力  →  Enter
+prefix+alt+l  →  保存済み一覧から選ぶ
+```
+
+```bash
+herdr-layout-tools save <name> [--tab ID]    # 今の形を保存
+herdr-layout-tools apply <name> [--tab ID]   # 保存した形に戻す
+herdr-layout-tools layouts                   # 一覧
+herdr-layout-tools forget <name>             # 削除
+```
+
+比率も復元します。`(r65 p1 (d50 p2 p3))` を保存して Columns に崩しても、
+`apply` で 65% の分割まで元に戻ります。
+
+Pane 数が合わない Tab に適用しようとすると、両方の数を挙げて中止します
+（`This layout holds 3 panes, but the tab has 4.`）。
+どの Pane を捨てるか・増えた分をどこに置くかを推測するより、
+明示的に断るほうが安全なためです。メニューでは適用前に
+`needs 3 here` のように表示されます。
+
+保存先は state ディレクトリの `layouts.json` です。
+
+---
+
+## 右クリック
 
 Pane / Tab の右クリックメニューに `Layout Tools` と各配置が並びます。
 

@@ -7,6 +7,7 @@
 //! Every operation keeps the running processes alive.
 
 mod arrange;
+mod template;
 mod ops;
 mod ui;
 
@@ -38,6 +39,19 @@ Usage:
       Rearrange the tab. --pane names the pane that gets the large slot in
       the main-* arrangements; it defaults to the focused pane.
 
+  herdr-layout-tools save <name> [--tab ID]
+      Remember this tab's shape under a name. Pane ids are not stored, so it
+      can be applied to any tab with the same number of panes.
+
+  herdr-layout-tools apply <name> [--tab ID]
+      Put this tab's panes into a saved shape, proportions included.
+
+  herdr-layout-tools layouts
+      List the saved layouts.
+
+  herdr-layout-tools forget <name>
+      Delete a saved layout.
+
   herdr-layout-tools doctor
       Print the current tab's split tree.
 ";
@@ -60,6 +74,36 @@ fn run() -> Result<()> {
             let source = context::resolve_source_pane(&herdr, args.pane.as_deref())?;
             if let Some(outcome) = ui::run(&herdr, source, args.tab.as_deref())? {
                 outcome.report(&herdr);
+            }
+            Ok(())
+        }
+        "save" | "apply" => {
+            let Some(name) = args.positional.first().cloned() else {
+                bail!("{} needs a name\n\n{USAGE}", args.command);
+            };
+            let (tab_id, _) = target(&herdr, &args)?;
+            let outcome = if args.command == "save" {
+                ops::save_layout(&herdr, &tab_id, &name)?
+            } else {
+                ops::apply_layout(&herdr, &tab_id, &name)?
+            };
+            outcome.report(&herdr);
+            Ok(())
+        }
+        "forget" => {
+            let Some(name) = args.positional.first().cloned() else {
+                bail!("forget needs a name\n\n{USAGE}");
+            };
+            ops::forget_layout(&name)?.report(&herdr);
+            Ok(())
+        }
+        "layouts" => {
+            let saved = template::load();
+            if saved.is_empty() {
+                println!("no saved layouts");
+            }
+            for (name, layout) in &saved {
+                println!("{name}\t{}", layout.describe());
             }
             Ok(())
         }

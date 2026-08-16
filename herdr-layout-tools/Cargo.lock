@@ -117,6 +117,7 @@ dependencies = [
  "crossterm",
  "herdr-plugin-kit",
  "serde",
+ "serde_json",
 ]
 
 [[package]]

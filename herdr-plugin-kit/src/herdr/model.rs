@@ -57,7 +57,7 @@ impl Default for AgentStatus {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct Pane {
     pub pane_id: String,
     pub tab_id: String,
