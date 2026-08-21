@@ -41,6 +41,8 @@ pub struct Menu<T> {
     enter: &'static str,
     /// Replaces "type to filter" when typing means something else.
     prompt: Option<&'static str>,
+    /// Shown in the preview area for rows that have no picture.
+    no_preview: &'static str,
     /// What Tab does, when it does anything.
     tab: Option<&'static str>,
     /// Keys that take the highlighted row just as Enter does. The caller
@@ -61,6 +63,7 @@ impl<T: Clone> Menu<T> {
             numbered: false,
             enter: "select",
             prompt: None,
+            no_preview: "",
             tab: None,
             accept_also: Vec::new(),
             accepted_with: Key::Enter,
@@ -105,6 +108,12 @@ impl<T: Clone> Menu<T> {
     /// What typing does, when it is not filtering — naming a thing, say.
     pub fn prompt(mut self, what: &'static str) -> Self {
         self.prompt = Some(what);
+        self
+    }
+
+    /// What to say in the preview area when a row has no picture.
+    pub fn no_preview(mut self, text: &'static str) -> Self {
+        self.no_preview = text;
         self
     }
 
@@ -323,20 +332,27 @@ impl<T: Clone> Menu<T> {
             cursor = cursor.min(selectable.len().saturating_sub(1));
 
             let under_cursor = selectable.get(cursor).copied();
+            // The picture belongs to the row being considered, but it is drawn
+            // in a fixed block at the bottom rather than under the row, so the
+            // list does not shift as the cursor moves through it.
+            self.view.preview = under_cursor
+                .map(|i| all_rows[i].extra.clone())
+                .unwrap_or_default();
+            self.view.preview_height = all_rows.iter().map(|row| row.extra.len()).max().unwrap_or(0);
+            // A row with nothing to show still gets the space — taking it back
+            // would move the list, which is the whole thing this avoids — so
+            // say why it is empty rather than leaving a bare band.
+            if self.view.preview.is_empty() && self.view.preview_height > 0 {
+                self.view.preview = vec![String::new(), self.no_preview.to_string()];
+            }
             self.view.rows = visible
                 .iter()
                 .map(|i| {
-                    let mut row = if self.pinned[*i] {
+                    if self.pinned[*i] {
                         self.render_pinned(&all_rows[*i])
                     } else {
                         all_rows[*i].clone()
-                    };
-                    // Extra lines belong to the row being considered. Showing
-                    // every row's at once turns a list into a wall.
-                    if under_cursor != Some(*i) {
-                        row.extra.clear();
                     }
-                    row
                 })
                 .collect();
 

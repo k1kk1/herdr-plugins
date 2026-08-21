@@ -190,6 +190,16 @@ pub struct View {
     /// Index into `rows` currently under the arrow-key cursor.
     pub cursor: Option<usize>,
     pub accent: Color,
+    /// Fixed block drawn just above the footer.
+    ///
+    /// Kept out of the list on purpose: a picture that appears under whichever
+    /// row is highlighted pushes every row below it down, so the list moves
+    /// under the reader as they arrow through it. Reserving the space instead
+    /// costs a few lines and keeps every row exactly where it was.
+    pub preview: Vec<String>,
+    /// Lines reserved for `preview`, held constant so the list cannot reflow
+    /// when one entry's picture is taller than another's.
+    pub preview_height: usize,
     /// Current filter text, shown as a prompt line. `None` hides the prompt.
     pub query: Option<String>,
     /// How many entries survive the filter, shown beside the prompt.
@@ -206,6 +216,8 @@ impl View {
             footer: None,
             cursor: None,
             accent: Color::Cyan,
+            preview: Vec::new(),
+            preview_height: 0,
             query: None,
             match_count: None,
         }
@@ -407,11 +419,17 @@ impl Term {
         let heights: Vec<usize> = view
             .rows
             .iter()
-            .map(|row| usize::from(row.detail.is_some()) + row.extra.len() + 1)
+            .map(|row| usize::from(row.detail.is_some()) + 1)
             .collect();
         let total: usize = heights.iter().sum();
-        // Everything above the footer is available to the list.
-        let available = height.saturating_sub(line).saturating_sub(1) as usize;
+        // Everything above the footer and the preview belongs to the list.
+        let reserved = if view.preview_height > 0 {
+            view.preview_height + 1
+        } else {
+            0
+        };
+        let available = (height.saturating_sub(line).saturating_sub(1) as usize)
+            .saturating_sub(reserved);
         let overflowing = total > available;
         // When the list overflows, one line goes to the "more above / below"
         // marker so the reader knows the rest exists.
@@ -448,6 +466,30 @@ impl Term {
             queue!(self.out, SetForegroundColor(Color::DarkGrey))?;
             put(&mut self.out, marker, &mut line)?;
             queue!(self.out, ResetColor)?;
+        }
+
+        if view.preview_height > 0 {
+            // Anchored to the bottom rather than following the list, so it is
+            // in the same place on every frame.
+            let top = height
+                .saturating_sub(1)
+                .saturating_sub(view.preview_height as u16);
+            for (offset, text) in view.preview.iter().enumerate() {
+                let row = top + offset as u16;
+                if row >= height.saturating_sub(1) {
+                    break;
+                }
+                queue!(self.out, cursor::MoveTo(0, row), Print("  "))?;
+                for ch in truncate(text, width.saturating_sub(2)).chars() {
+                    let colour = if ch == crate::layout::HIGHLIGHT {
+                        view.accent
+                    } else {
+                        Color::DarkGrey
+                    };
+                    queue!(self.out, SetForegroundColor(colour), Print(ch))?;
+                }
+                queue!(self.out, ResetColor)?;
+            }
         }
 
         if let Some(footer) = &view.footer {
@@ -575,27 +617,6 @@ impl Term {
         }
 
         *line += 1;
-
-        for text in &row.extra {
-            if *line >= height {
-                return Ok(());
-            }
-            queue!(self.out, cursor::MoveTo(0, *line), Print("       "))?;
-            // The shading glyph marks the part being pointed at, so it takes
-            // the accent while the rest of the drawing stays out of the way.
-            // Colouring by character rather than by span keeps `extra` a plain
-            // `Vec<String>`, which is all any caller has wanted so far.
-            for ch in truncate(text, width.saturating_sub(7)).chars() {
-                let colour = if ch == crate::layout::HIGHLIGHT {
-                    accent
-                } else {
-                    Color::DarkGrey
-                };
-                queue!(self.out, SetForegroundColor(colour), Print(ch))?;
-            }
-            queue!(self.out, ResetColor)?;
-            *line += 1;
-        }
 
         if let Some(detail) = &row.detail {
             if *line < height {

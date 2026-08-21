@@ -130,7 +130,8 @@ fn manager(
     let mut menu = Menu::new("Pane Manager")
         .subtitle(source_line(snapshot, config))
         // Quick rows take Shift+Enter as "the same tab, but ask me where".
-        .accept_also(&[Key::ShiftEnter]);
+        .accept_also(&[Key::ShiftEnter])
+        .no_preview("この操作は Pane の配置を変えません");
 
     // Quick Move first: it is the fastest path, and the reason to open this
     // at all (addendum §2).
