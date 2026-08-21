@@ -218,7 +218,7 @@ fn workflows_dir() -> Result<PathBuf> {
 /// have edited the keyword or hung more actions off it.
 pub fn install(config: &Config, force: bool) -> Result<PathBuf> {
     let dir = workflows_dir()?;
-    let target = existing(&dir)?.unwrap_or_else(|| dir.join(format!("user.workflow.{}", uuid())));
+    let target = existing(&dir)?.unwrap_or_else(|| dir.join(format!("user.workflow.{}", uuid("workflow-folder"))));
 
     if target.exists() && !force {
         bail!(
@@ -322,13 +322,13 @@ fn self_path() -> Result<String> {
 fn info_plist() -> Result<Workflow> {
     let me = self_path()?;
     let herdr = session::herdr_bin();
-    let filter_uid = uuid();
-    let action_uid = uuid();
+    let filter_uid = uuid("sessions-filter");
+    let action_uid = uuid("sessions-action");
 
     // Built from raw paths and escaped once, at the end. `{:?}` quotes them
     // for the shell; `xml` quotes the result for the plist.
-    let resume_filter_uid = uuid();
-    let resume_action_uid = uuid();
+    let resume_filter_uid = uuid("resume-filter");
+    let resume_action_uid = uuid("resume-action");
 
     let script = |args: &str| {
         xml(&format!(
@@ -640,14 +640,25 @@ fn xml(text: &str) -> String {
         .replace('>', "&gt;")
 }
 
-/// A version-4-shaped UUID from the system RNG.
+/// A UUID derived from `role`, identical on every install.
 ///
-/// Alfred only needs these to be unique within the file, so pulling 16 bytes
-/// from `/dev/urandom` beats taking a dependency.
-fn uuid() -> String {
+/// Stability matters more than uniqueness here. Fresh random uids on each
+/// install make Alfred see a *different* set of objects rather than an updated
+/// one — the keyword rows still list, because their scripts are re-read, but
+/// the connections behind them refer to objects Alfred no longer has, and
+/// pressing Enter does nothing at all. It also orphans the per-uid icon files.
+///
+/// FNV-1a rather than `DefaultHasher`, whose output is explicitly not promised
+/// to be stable between releases; this one has to survive a Rust upgrade.
+fn uuid(role: &str) -> String {
     let mut bytes = [0u8; 16];
-    if let Ok(mut file) = std::fs::File::open("/dev/urandom") {
-        let _ = file.read_exact(&mut bytes);
+    for (half, chunk) in bytes.chunks_mut(8).enumerate() {
+        let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+        for byte in format!("{BUNDLE_ID}/{role}/{half}").bytes() {
+            hash ^= u64::from(byte);
+            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+        chunk.copy_from_slice(&hash.to_be_bytes());
     }
     bytes[6] = (bytes[6] & 0x0f) | 0x40;
     bytes[8] = (bytes[8] & 0x3f) | 0x80;
@@ -724,14 +735,26 @@ mod tests {
     }
 
     #[test]
-    fn uuids_are_shaped_the_way_alfred_writes_them() {
-        let id = uuid();
+    fn uuids_are_shaped_the_way_alfred_writes_them_and_never_move() {
+        let id = uuid("sessions-filter");
         assert_eq!(id.len(), 36);
         assert_eq!(
             id.split('-').map(str::len).collect::<Vec<_>>(),
             [8, 4, 4, 4, 12]
         );
-        assert_ne!(uuid(), id);
+        // The same role always gives the same uid, so re-installing updates
+        // the workflow Alfred already has instead of replacing it.
+        assert_eq!(uuid("sessions-filter"), id);
+        // Different roles must still differ, or the objects would collide.
+        let roles = [
+            "sessions-filter",
+            "sessions-action",
+            "resume-filter",
+            "resume-action",
+        ];
+        let ids: std::collections::BTreeSet<String> =
+            roles.iter().map(|r| uuid(r)).collect();
+        assert_eq!(ids.len(), roles.len());
     }
 
     #[test]
