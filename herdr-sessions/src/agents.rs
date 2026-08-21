@@ -85,6 +85,16 @@ impl Kind {
         }
     }
 
+    /// The executable to run. Same as [`Kind::agent`] for both tools today,
+    /// but the two mean different things: one is Herdr's name for the agent,
+    /// the other is a program on `PATH`.
+    pub fn command(self) -> String {
+        match self {
+            Kind::Claude => "claude".into(),
+            Kind::Codex => "codex".into(),
+        }
+    }
+
     /// The arguments that resume `id`.
     pub fn resume_args(self, id: &str) -> Vec<String> {
         match self {

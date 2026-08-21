@@ -93,6 +93,74 @@ pub fn command_for(config: &Config, name: &str) -> Result<Vec<String>> {
         .collect())
 }
 
+/// The application the open command launches, if it names one.
+///
+/// Used to bring the terminal forward after doing something to the session
+/// that is already running in it. Derived from the command rather than
+/// configured separately so the two cannot disagree.
+pub fn terminal_app(config: &Config) -> Option<String> {
+    command_for(config, "")
+        .ok()?
+        .into_iter()
+        .find(|part| part.ends_with(".app"))
+}
+
+/// Bring the terminal to the front. Best-effort; nothing depends on it.
+pub fn focus_terminal(config: &Config) {
+    let Some(app) = terminal_app(config) else {
+        return;
+    };
+    // No `-n`: the point is to raise the window that already exists.
+    let _ = Command::new("open")
+        .args(["-a", &app])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn();
+}
+
+/// Run `argv` in a new terminal window.
+///
+/// The fallback for when Herdr is not running: a conversation still has to be
+/// resumable, it just cannot be put into a session that does not exist.
+pub fn run_in_terminal(config: &Config, argv: &[String], cwd: Option<&str>) -> Result<Vec<String>> {
+    let template = command_for(config, "")?;
+    // Everything up to the placeholder command is the terminal's own
+    // invocation; `{herdr} session attach` is what gets replaced.
+    let head: Vec<String> = template
+        .into_iter()
+        .take_while(|part| !part.ends_with("herdr") && part != "session")
+        .collect();
+
+    let mut line: Vec<String> = head;
+    if let Some(cwd) = cwd {
+        // `cd` first: the agent has to start where the conversation happened.
+        line.push("sh".into());
+        line.push("-c".into());
+        line.push(format!("cd {} && exec {}", shell_quote(cwd), argv.iter().map(|a| shell_quote(a)).collect::<Vec<_>>().join(" ")));
+    } else {
+        line.extend(argv.iter().cloned());
+    }
+
+    let (program, rest) = line.split_first().context("the open command is empty")?;
+    let mut command = Command::new(program);
+    command
+        .args(rest)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    disinherit(&mut command);
+    command
+        .spawn()
+        .with_context(|| format!("could not run `{program}`"))?;
+    Ok(line)
+}
+
+/// Single-quote for `sh -c`, which is the one place here a shell is involved.
+fn shell_quote(text: &str) -> String {
+    format!("'{}'", text.replace('\'', r"'\''"))
+}
+
 /// Launch the session in a new terminal window.
 ///
 /// Detached deliberately: the spawned window outlives this process, which on
@@ -254,6 +322,24 @@ mod tests {
         // A `0` is a typo, not a request for an empty picker.
         let zero = Config { recent: Some(0), ..Default::default() };
         assert_eq!(zero.recent(), usize::MAX);
+    }
+
+    #[test]
+    fn the_terminal_app_is_read_back_out_of_the_open_command() {
+        let config = Config {
+            command: ["open", "-na", "Ghostty.app", "--args", "-e", "{session}"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+            ..Default::default()
+        };
+        assert_eq!(terminal_app(&config).as_deref(), Some("Ghostty.app"));
+    }
+
+    #[test]
+    fn shell_quoting_survives_a_directory_with_a_quote_in_it() {
+        assert_eq!(shell_quote("/a/b"), "'/a/b'");
+        assert_eq!(shell_quote("/it's"), r"'/it'\''s'");
     }
 
     #[test]

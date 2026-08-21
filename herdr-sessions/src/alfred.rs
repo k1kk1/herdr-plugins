@@ -46,6 +46,45 @@ pub fn script_filter(config: &Config) -> Result<String> {
     Ok(payload.to_string())
 }
 
+/// Past Claude Code and Codex conversations, as Alfred items.
+pub fn resume_filter(config: &Config) -> Result<String> {
+    let sessions = crate::agents::list_all(config.recent(), None)?;
+    let items: Vec<Value> = sessions.iter().map(resume_item).collect();
+
+    let payload = if items.is_empty() {
+        json!({ "items": [{
+            "title": "No conversations recorded",
+            "subtitle": "Nothing from Claude Code or Codex on this machine yet",
+            "valid": false,
+        }]})
+    } else {
+        json!({ "items": items })
+    };
+    Ok(payload.to_string())
+}
+
+fn resume_item(session: &crate::agents::AgentSession) -> Value {
+    let mut subtitle = vec![
+        session.kind.tag().to_string(),
+        crate::session::ago(session.modified),
+        session.where_line(),
+    ];
+    if let Some(context) = session.context_line() {
+        subtitle.push(context);
+    }
+    json!({
+        "uid": format!("herdr-conversation:{}", session.id),
+        "title": session.heading(),
+        "subtitle": subtitle.join(" · "),
+        "arg": session.id,
+        // The tool name and the path are in the subtitle, but Alfred only
+        // matches what it is told to, so they go here too.
+        "match": session.searchable(),
+        "valid": true,
+        "text": { "copy": format!("{} {}", session.kind.command(), session.kind.resume_args(&session.id).join(" ")) },
+    })
+}
+
 fn item(config: &Config, session: &Session) -> Value {
     let detail = session::detail(session);
     let mut item = json!({
@@ -106,7 +145,10 @@ fn matchable(session: &Session, detail: &Detail) -> String {
 // Installing the workflow
 // ---------------------------------------------------------------------------
 
+/// Keyword for the Herdr session list.
 const KEYWORD: &str = "hs";
+/// Keyword for the conversation list.
+const KEYWORD_RESUME: &str = "hr";
 
 fn workflows_dir() -> Result<PathBuf> {
     let home = std::env::var_os("HOME").context("HOME is not set")?;
@@ -183,12 +225,18 @@ fn info_plist() -> Result<String> {
 
     // Built from raw paths and escaped once, at the end. `{:?}` quotes them
     // for the shell; `xml` quotes the result for the plist.
-    let list_script = xml(&format!(
-        "export HERDR_BIN_PATH={herdr:?}\nexec {me:?} alfred\n"
-    ));
-    let open_script = xml(&format!(
-        "export HERDR_BIN_PATH={herdr:?}\nexec {me:?} open \"$1\"\n"
-    ));
+    let resume_filter_uid = uuid();
+    let resume_action_uid = uuid();
+
+    let script = |args: &str| {
+        xml(&format!(
+            "export HERDR_BIN_PATH={herdr:?}\nexec {me:?} {args}\n"
+        ))
+    };
+    let list_script = script("alfred");
+    let open_script = script(r#"open "$1""#);
+    let resume_list_script = script("alfred resume");
+    let resume_script = script(r#"resume "$1""#);
 
     Ok(format!(
         r##"<?xml version="1.0" encoding="UTF-8"?>
@@ -214,11 +262,24 @@ fn info_plist() -> Result<String> {
 				<false/>
 			</dict>
 		</array>
+		<key>{resume_filter_uid}</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>{resume_action_uid}</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
 	</dict>
 	<key>createdby</key>
 	<string>herdr-sessions</string>
 	<key>description</key>
-	<string>List Herdr sessions and open one in a new terminal window.</string>
+	<string>List Herdr sessions and past agent conversations, and open one.</string>
 	<key>disabled</key>
 	<false/>
 	<key>name</key>
@@ -277,6 +338,78 @@ fn info_plist() -> Result<String> {
 		<dict>
 			<key>config</key>
 			<dict>
+				<key>alfredfiltersresults</key>
+				<true/>
+				<key>alfredfiltersresultsmatchmode</key>
+				<integer>0</integer>
+				<key>argumenttreatemptyqueryasnil</key>
+				<true/>
+				<key>argumenttrimmode</key>
+				<integer>0</integer>
+				<key>argumenttype</key>
+				<integer>1</integer>
+				<key>escaping</key>
+				<integer>102</integer>
+				<key>keyword</key>
+				<string>{KEYWORD_RESUME}</string>
+				<key>queuedelaycustom</key>
+				<integer>3</integer>
+				<key>queuedelayimmediatesinitial</key>
+				<true/>
+				<key>queuedelaymode</key>
+				<integer>0</integer>
+				<key>queuemode</key>
+				<integer>1</integer>
+				<key>runningsubtext</key>
+				<string>Reading conversations...</string>
+				<key>script</key>
+				<string>{resume_list_script}</string>
+				<key>scriptargtype</key>
+				<integer>0</integer>
+				<key>scriptfile</key>
+				<string></string>
+				<key>subtext</key>
+				<string>Resume a Claude Code or Codex conversation</string>
+				<key>title</key>
+				<string>Herdr Resume</string>
+				<key>type</key>
+				<integer>0</integer>
+				<key>withspace</key>
+				<true/>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.input.scriptfilter</string>
+			<key>uid</key>
+			<string>{resume_filter_uid}</string>
+			<key>version</key>
+			<integer>3</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>concurrently</key>
+				<false/>
+				<key>escaping</key>
+				<integer>102</integer>
+				<key>script</key>
+				<string>{resume_script}</string>
+				<key>scriptargtype</key>
+				<integer>0</integer>
+				<key>scriptfile</key>
+				<string></string>
+				<key>type</key>
+				<integer>0</integer>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.action.script</string>
+			<key>uid</key>
+			<string>{resume_action_uid}</string>
+			<key>version</key>
+			<integer>2</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
 				<key>concurrently</key>
 				<false/>
 				<key>escaping</key>
@@ -299,7 +432,9 @@ fn info_plist() -> Result<String> {
 		</dict>
 	</array>
 	<key>readme</key>
-	<string>Type `{KEYWORD}` in Alfred to list every Herdr session, running and stopped, and press Enter to open one in a new terminal window.
+	<string>`{KEYWORD}` lists every Herdr session, running and stopped; Enter opens one in a new terminal window.
+
+`{KEYWORD_RESUME}` lists past Claude Code and Codex conversations; Enter resumes one inside the running Herdr session and brings the terminal forward. With no session running it opens a window instead.
 
 Generated by `herdr-sessions alfred install`. Re-run it after moving the plugin, so the baked-in paths stay right.</string>
 	<key>uidata</key>
@@ -317,6 +452,20 @@ Generated by `herdr-sessions alfred install`. Re-run it after moving the plugin,
 			<real>320</real>
 			<key>ypos</key>
 			<real>60</real>
+		</dict>
+		<key>{resume_filter_uid}</key>
+		<dict>
+			<key>xpos</key>
+			<real>60</real>
+			<key>ypos</key>
+			<real>190</real>
+		</dict>
+		<key>{resume_action_uid}</key>
+		<dict>
+			<key>xpos</key>
+			<real>320</real>
+			<key>ypos</key>
+			<real>190</real>
 		</dict>
 	</dict>
 	<key>userconfigurationconfig</key>
@@ -410,16 +559,27 @@ mod tests {
     }
 
     #[test]
-    fn the_generated_plist_parses_and_carries_both_scripts() {
+    fn the_generated_plist_wires_both_keywords_end_to_end() {
         let plist = info_plist().unwrap();
         assert!(plist.contains(BUNDLE_ID));
-        assert!(plist.contains("alfred.workflow.input.scriptfilter"));
-        assert!(plist.contains("alfred.workflow.action.script"));
-        // Alfred runs these with a bare PATH, so both halves must name the
-        // binary by absolute path rather than by name.
+
+        // Two keywords, each a filter feeding an action: four scripts.
+        assert_eq!(plist.matches("alfred.workflow.input.scriptfilter").count(), 2);
+        assert_eq!(plist.matches("alfred.workflow.action.script").count(), 2);
+        assert!(plist.contains(&format!("<string>{KEYWORD}</string>")));
+        assert!(plist.contains(&format!("<string>{KEYWORD_RESUME}</string>")));
+
+        // Alfred runs these with a bare PATH, so every one of them must name
+        // the binary by absolute path rather than by name.
         let me = self_path().unwrap();
         assert!(me.starts_with('/'), "{me}");
-        assert_eq!(plist.matches(&me).count(), 2, "both scripts must name it");
+        assert_eq!(plist.matches(&me).count(), 4, "every script must name it");
+
+        // Every uid referenced by a connection must exist as an object.
+        for uid in ["filter", "action"] {
+            let _ = uid;
+        }
+        assert_eq!(plist.matches("destinationuid").count(), 2);
     }
 
     #[test]

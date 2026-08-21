@@ -56,6 +56,39 @@ impl Where {
     pub const MODIFIED: [Key; 2] = [Key::ShiftEnter, Key::AltEnter];
 }
 
+/// Resume `session` from wherever the caller happens to be.
+///
+/// Inside Herdr this is the same as [`resume`]. From outside — Alfred, a
+/// shell — it still puts the conversation into the running session rather than
+/// a window of its own, because that is where the user works; the terminal is
+/// then brought forward so the result is visible. With no session running
+/// there is nothing to put it into, so a new window is the answer after all.
+pub fn anywhere(session: &AgentSession, config: &crate::open::Config) -> Result<()> {
+    let outside = std::env::var_os("HERDR_ENV").is_none();
+
+    match Herdr::connect() {
+        Ok(herdr) => {
+            let anchor = herdr_plugin_kit::context::resolve_source_pane(&herdr, None).ok();
+            let outcome = resume(&herdr, session, config.resume_in, anchor.as_ref())?;
+            if outside {
+                crate::open::focus_terminal(config);
+            }
+            outcome.report(&herdr);
+            Ok(())
+        }
+        Err(_) if outside => {
+            let mut argv = vec![session.kind.command()];
+            argv.extend(session.kind.resume_args(&session.id));
+            let cwd = session.cwd.as_ref().map(|p| p.display().to_string());
+            let line = crate::open::run_in_terminal(config, &argv, cwd.as_deref())?;
+            println!("Herdr is not running; opened a window instead");
+            println!("{}", line.join(" "));
+            Ok(())
+        }
+        Err(err) => Err(err),
+    }
+}
+
 /// Resume `session`, and say what happened.
 ///
 /// `anchor` is the pane the user was on, needed only for the split placement.

@@ -65,8 +65,9 @@ Usage:
   herdr-sessions open <name>
       Open a session in a new terminal window.
 
-  herdr-sessions alfred
-      Print the sessions as Alfred Script Filter JSON.
+  herdr-sessions alfred [resume]
+      Print the sessions, or past conversations, as Alfred Script Filter
+      JSON.
 
   herdr-sessions alfred install [--force]
       Install the Alfred workflow, with absolute paths baked in.
@@ -117,7 +118,6 @@ fn run() -> Result<()> {
             Ok(())
         }
         "resume" => {
-            let herdr = Herdr::connect()?;
             // The tool is optional: an id is unique across both, so
             // `resume <id>` means the same thing as `resume all <id>`.
             let (kind, id) = match args.get(2) {
@@ -133,9 +133,7 @@ fn run() -> Result<()> {
                 let scope = kind.map_or("any tool's", |k| k.label());
                 bail!("no {scope} session with id `{id}`");
             };
-            let anchor = herdr_plugin_kit::context::resolve_source_pane(&herdr, None).ok();
-            resume::resume(&herdr, &session, config.resume_in, anchor.as_ref())?.report(&herdr);
-            Ok(())
+            resume::anywhere(&session, &config)
         }
         "open" => {
             let Some(name) = args.get(1) else {
@@ -150,7 +148,11 @@ fn run() -> Result<()> {
                 let force = args.iter().any(|a| a == "--force");
                 let path = alfred::install(force)?;
                 println!("Installed the Alfred workflow at {}", path.display());
-                println!("Type `hs` in Alfred to list your sessions.");
+                    println!("Alfred: `hs` for Herdr sessions, `hr` for past conversations.");
+                Ok(())
+            }
+            Some("resume") => {
+                println!("{}", alfred::resume_filter(&config)?);
                 Ok(())
             }
             // A Script Filter passes the typed query as $1; Alfred does the
