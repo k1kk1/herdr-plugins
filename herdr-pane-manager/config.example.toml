@@ -90,3 +90,13 @@ tab_label = "Active Agents"
 #
 # 対象は Enter・数字キー・英字キーのすべてです。
 # default_action = "quick"
+
+# メニューの先頭に、他の Tab を 1-9 のキー付きで並べるか。
+#
+# 既定は false。メニューで一番長い部分で、しかも `Move to…` から辿れるものと
+# 同じ場所へ行くだけなので、**Tab の一覧ではなく操作の一覧**として読めるように
+# 既定では出しません。
+#
+# 出さなくても、同じ即移動は `quick-move-1`…`9` のプラグイン Action として
+# 残ります（Command Palette や右クリックから呼べます）。
+# show_quick_move = true

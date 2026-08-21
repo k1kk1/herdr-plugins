@@ -134,7 +134,9 @@ fn manager_footer(term: &Term, config: &Config) -> String {
     } else {
         "Shift+英字"
     };
-    format!("1-9・英字・Enter {plain}  ·  {shift_key} {shifted}  ·  Esc 閉じる")
+    // `1-9` only earns its place in the line when there are numbered rows.
+    let digits = if config.show_quick_move { "1-9・" } else { "" };
+    format!("{digits}英字・Enter {plain}  ·  {shift_key} {shifted}  ·  Esc 閉じる")
 }
 
 /// The overlay (spec §9.2, addendum §1).
@@ -155,9 +157,12 @@ fn manager(
         .accept_also(&[Key::ShiftEnter])
         .no_preview("この操作は Pane の配置を変えません");
 
-    // Quick Move first: it is the fastest path, and the reason to open this
-    // at all (addendum §2).
-    let quick: Vec<_> = snapshot
+    // Quick Move first when it is shown: it is the fastest path to another
+    // tab (addendum §2). Off by default — see `show_quick_move`.
+    let quick: Vec<_> = if !config.show_quick_move {
+        Vec::new()
+    } else {
+        snapshot
         .tabs
         .iter()
         .filter(|t| t.tab.tab_id != snapshot.source.tab_id && t.position <= 9)
@@ -169,7 +174,8 @@ fn manager(
                 tab_preview(t, Some(config.default_move_direction.resolve().unwrap_or(Side::Right))),
             )
         })
-        .collect();
+        .collect()
+    };
 
     if !quick.is_empty() {
         menu.row(Row::header("Quick move current pane to"));

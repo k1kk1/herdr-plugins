@@ -83,6 +83,13 @@ pub struct Config {
     pub show_ids: bool,
     /// What choosing a row does when no modifier is held.
     pub default_action: DefaultAction,
+    /// List every other tab at the top of the menu, on keys `1`–`9`.
+    ///
+    /// Off by default: it is the longest part of the menu and it repeats what
+    /// `Move to…` already reaches, so the menu reads as a list of operations
+    /// rather than a list of tabs. The same jumps stay available as the
+    /// `quick-move-1`…`9` plugin actions whether or not the rows are shown.
+    pub show_quick_move: bool,
     /// Active Agent Gather (addendum §2, §4, §7, §15, §16).
     pub gather: GatherConfig,
 }
@@ -180,6 +187,7 @@ impl Default for Config {
             confirm_merge: false,
             show_ids: false,
             default_action: DefaultAction::default(),
+            show_quick_move: false,
             gather: GatherConfig::default(),
         }
     }
