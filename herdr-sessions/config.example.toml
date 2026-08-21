@@ -58,3 +58,20 @@
 # （Ghostty / kitty / WezTerm は可、Terminal.app は不可）。区別できない環境では
 # ただの Enter として届くので、フッターにも出しません。
 # resume_in = "workspace"
+
+# ---------------------------------------------------------------------------
+# Alfred のアイコン
+# ---------------------------------------------------------------------------
+
+# Alfred の一覧に出す 256px 程度の PNG。
+#
+# **同梱していません。** ここで使う価値のあるアイコンは他人の作ったマークなので、
+# リポジトリに入れると再配布になります。自分で取ってくるぶんには問題ありません。
+#
+#   D=$(herdr plugin config-dir sessions)
+#   curl -sL -o "$D/icon.png" https://herdr.dev/assets/logo.png
+#   herdr-sessions alfred install --force
+#
+# 設定ディレクトリの icon.png は自動で拾います。別の場所を使うならここに書きます。
+# 未設定なら Alfred の既定アイコンになるだけで、動作には影響しません。
+# icon = "~/Pictures/herdr.png"

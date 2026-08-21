@@ -48,6 +48,12 @@ pub struct Config {
     pub recent: Option<usize>,
     /// Where a resumed conversation is put.
     pub resume_in: crate::resume::Where,
+    /// PNG used for the Alfred workflow's rows.
+    ///
+    /// Not shipped with the plugin: an icon worth using is somebody else's
+    /// artwork, and vendoring it would mean redistributing their mark. Point
+    /// this at one you have, or drop `icon.png` into the config directory.
+    pub icon: Option<PathBuf>,
 }
 
 impl Default for Config {
@@ -56,6 +62,7 @@ impl Default for Config {
             command: Vec::new(),
             recent: None,
             resume_in: crate::resume::Where::default(),
+            icon: None,
         }
     }
 }

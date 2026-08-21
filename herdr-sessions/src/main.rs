@@ -153,9 +153,12 @@ fn run() -> Result<()> {
         "alfred" => match args.get(1).map(String::as_str) {
             Some("install") => {
                 let force = args.iter().any(|a| a == "--force");
-                let path = alfred::install(force)?;
+                let path = alfred::install(&config, force)?;
                 println!("Installed the Alfred workflow at {}", path.display());
-                    println!("Alfred: `hs` for Herdr sessions, `hr` for past conversations.");
+                println!("Alfred: `hs` for Herdr sessions, `hr` for past conversations.");
+                if !path.join("icon.png").is_file() {
+                    println!("\n{}", alfred::icon_hint());
+                }
                 Ok(())
             }
             Some("resume") => {

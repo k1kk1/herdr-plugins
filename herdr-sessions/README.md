@@ -307,7 +307,25 @@ argv=[~/Library/Caches/…/Workflow Scripts/F4B41383-…][tab:ea7133d5-…]
 
 ### アイコン
 
-各行にはインストール済みアプリのアイコンを Alfred の `fileicon` で借ります。
+`hs` / `hr` のキーワード行そのものには、**設定したアイコン**を使います。
+
+```bash
+D=$(herdr plugin config-dir sessions)
+curl -sL -o "$D/icon.png" https://herdr.dev/assets/logo.png
+herdr-sessions alfred install --force
+```
+
+**同梱していません。** ここで使う価値のあるアイコンは Herdr 自身のマークで、
+リポジトリに入れれば再配布になります。自分で取ってくるのは何でもないことですが、
+インストーラが黙って取りに行くのは出過ぎです。未設定なら Alfred の既定アイコンに
+なるだけで、動作には影響しません。
+
+Alfred はオブジェクトのアイコンを **uid と同名の PNG** から読みます。uid は
+インストールのたびに変わるので、フォルダに置いておくのではなく
+インストーラが書き出しています。
+
+検索結果の各行には、インストール済みアプリのアイコンを Alfred の `fileicon` で
+借ります。
 **画像を同梱しないので、アプリが更新されれば絵柄も追従します。**
 
 | 行 | 借りる先 |
