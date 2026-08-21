@@ -63,6 +63,12 @@ pub fn resume_filter(config: &Config) -> Result<String> {
     Ok(payload.to_string())
 }
 
+/// Alfred's "borrow this application's icon" form.
+fn app_icon(app: Option<std::path::PathBuf>) -> Option<Value> {
+    let app = app?;
+    Some(json!({ "type": "fileicon", "path": app.display().to_string() }))
+}
+
 fn resume_item(session: &crate::agents::AgentSession) -> Value {
     let mut subtitle = vec![
         session.kind.tag().to_string(),
@@ -72,7 +78,7 @@ fn resume_item(session: &crate::agents::AgentSession) -> Value {
     if let Some(context) = session.context_line() {
         subtitle.push(context);
     }
-    json!({
+    let mut item = json!({
         "uid": format!("herdr-conversation:{}", session.id),
         "title": session.heading(),
         "subtitle": subtitle.join(" · "),
@@ -82,7 +88,11 @@ fn resume_item(session: &crate::agents::AgentSession) -> Value {
         "match": session.searchable(),
         "valid": true,
         "text": { "copy": format!("{} {}", session.kind.command(), session.kind.resume_args(&session.id).join(" ")) },
-    })
+    });
+    if let Some(icon) = app_icon(session.kind.app()) {
+        item["icon"] = icon;
+    }
+    item
 }
 
 fn item(config: &Config, session: &Session) -> Value {
@@ -105,6 +115,11 @@ fn item(config: &Config, session: &Session) -> Value {
             "{} — you are in this session",
             subtitle(session, &detail)
         ));
+    }
+
+    // A Herdr session opens in a terminal, so it wears that terminal's icon.
+    if let Some(icon) = app_icon(terminal_bundle(config)) {
+        item["icon"] = icon;
     }
 
     // Warn rather than fail: the row is still worth showing, and the error
@@ -144,6 +159,18 @@ fn matchable(session: &Session, detail: &Detail) -> String {
 // ---------------------------------------------------------------------------
 // Installing the workflow
 // ---------------------------------------------------------------------------
+
+/// The terminal application's bundle, for its icon.
+fn terminal_bundle(config: &Config) -> Option<std::path::PathBuf> {
+    let name = crate::open::terminal_app(config)?;
+    let home = std::path::PathBuf::from(std::env::var_os("HOME")?);
+    [
+        std::path::PathBuf::from("/Applications").join(&name),
+        home.join("Applications").join(&name),
+    ]
+    .into_iter()
+    .find(|path| path.exists())
+}
 
 /// Keyword for the Herdr session list.
 const KEYWORD: &str = "hs";

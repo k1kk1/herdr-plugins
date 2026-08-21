@@ -85,6 +85,34 @@ impl Kind {
         }
     }
 
+    /// The installed application whose icon stands for this tool.
+    ///
+    /// Used only for its icon, not launched. Taking it from the app bundle
+    /// means the real, current mark with nothing to ship or keep up to date —
+    /// and it degrades to no icon rather than a wrong one when the app is not
+    /// installed, which is the right way round.
+    ///
+    /// Claude Code and Codex are terminal programs with no bundle of their
+    /// own, so these are their desktop siblings.
+    pub fn app(self) -> Option<PathBuf> {
+        let home = PathBuf::from(std::env::var_os("HOME")?);
+        let candidates: &[&str] = match self {
+            Kind::Claude => &["/Applications/Claude.app", "~/Applications/Claude.app"],
+            Kind::Codex => &[
+                "/Applications/Codex.app",
+                "/Applications/ChatGPT.app",
+                "~/Applications/ChatGPT.app",
+            ],
+        };
+        candidates
+            .iter()
+            .map(|path| match path.strip_prefix("~/") {
+                Some(rest) => home.join(rest),
+                None => PathBuf::from(path),
+            })
+            .find(|path| path.exists())
+    }
+
     /// The executable to run. Same as [`Kind::agent`] for both tools today,
     /// but the two mean different things: one is Herdr's name for the agent,
     /// the other is a program on `PATH`.
