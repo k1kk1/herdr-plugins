@@ -143,7 +143,6 @@ fn manager(
             (
                 t.position,
                 label::tab_display(&t.tab, t.position),
-                tab_shape(t),
                 tab_contents(t),
                 tab_preview(t, Some(config.default_move_direction.resolve().unwrap_or(Side::Right))),
             )
@@ -156,11 +155,10 @@ fn manager(
         } else {
             "Quick move current pane to"
         }));
-        for (position, name, shape, contents, diagram) in quick {
+        for (position, name, contents, diagram) in quick {
             menu.item(
                 Row::item(name)
                     .hotkey(position.to_string())
-                    .secondary(shape)
                     .detail(Some(contents))
                     .preview_of(diagram),
                 Choice::QuickMove(position),
@@ -643,20 +641,6 @@ fn swap_flow(
     )
 }
 
-/// How a destination tab is arranged, as a sketch.
-///
-/// Falls back to a count when Herdr could not report the split tree, which is
-/// rare but not worth failing a whole menu over.
-fn tab_shape(tab: &TabEntry) -> String {
-    match &tab.shape {
-        Some(shape) => shape.sketch(),
-        // A one-pane tab never has its layout fetched — there is nothing to
-        // ask about — so the single box is drawn straight from the count.
-        None if tab.tab.pane_count <= 1 => "▫".into(),
-        None => format!("{} panes", tab.tab.pane_count),
-    }
-}
-
 /// The current tab, with whatever an action would take from it marked.
 ///
 /// Move, Swap and Fold all ask for a destination afterwards, so a picture of
@@ -748,7 +732,6 @@ fn destination_menu(
         }
 
         let mut row = Row::item(label::tab_display(&tab.tab, tab.position))
-            .secondary(tab_shape(tab))
             .detail(Some(tab_contents(tab)))
             .preview_of(tab_preview(tab, arriving));
         // Quick-pick numbers only make sense inside the current workspace,

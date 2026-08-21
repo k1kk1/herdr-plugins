@@ -233,19 +233,6 @@ pub enum Shape {
 }
 
 impl Shape {
-    /// A one-line sketch of the arrangement, for a picker row.
-    ///
-    /// `▫│▫` is two panes side by side, `▫─▫` two stacked, `[▫│▫]─▫` a pair
-    /// above a third. A count — "3 panes" — says how many boxes there are but
-    /// nothing about where they sit, which is the part a reader is choosing
-    /// between when they pick a destination.
-    ///
-    /// Brackets only appear around a nested group, so the common flat cases
-    /// stay as light as possible.
-    pub fn sketch(&self) -> String {
-        self.draw(true)
-    }
-
     /// A box diagram of the arrangement, one string per line.
     ///
     /// The sketch (`▫│[▫─▫]`) fits on a list row; this is what the tab
@@ -412,30 +399,6 @@ impl Shape {
                         a.rasterise(grid, x, y, w, cut, next);
                         b.rasterise(grid, x, y + cut, w, h - cut, next);
                     }
-                }
-            }
-        }
-    }
-
-    fn draw(&self, top: bool) -> String {
-        match self {
-            Shape::Pane(_) => "▫".to_string(),
-            Shape::Split { side, first, second } => {
-                let joint = match side {
-                    Side::Left | Side::Right => '│',
-                    Side::Up | Side::Down => '─',
-                };
-                // `Left` and `Up` place the *new* pane before the existing
-                // one, so the drawing has to swap to match what is on screen.
-                let (a, b) = match side {
-                    Side::Left | Side::Up => (second, first),
-                    Side::Right | Side::Down => (first, second),
-                };
-                let body = format!("{}{joint}{}", a.draw(false), b.draw(false));
-                if top {
-                    body
-                } else {
-                    format!("[{body}]")
                 }
             }
         }
@@ -610,52 +573,6 @@ mod sketch_tests {
         let shape = split(Side::Right, Shape::pane("a"), Shape::pane("b"));
         let lines = shape.diagram_with(2, 2, Some("absent"));
         assert!(lines.iter().all(|l| !l.contains(HIGHLIGHT)));
-    }
-
-    #[test]
-    fn a_lone_pane_is_one_box() {
-        assert_eq!(Shape::pane("p1").sketch(), "▫");
-    }
-
-    #[test]
-    fn the_joint_says_which_way_the_split_runs() {
-        let across = split(Side::Right, Shape::pane("a"), Shape::pane("b"));
-        let down = split(Side::Down, Shape::pane("a"), Shape::pane("b"));
-        assert_eq!(across.sketch(), "▫│▫");
-        assert_eq!(down.sketch(), "▫─▫");
-    }
-
-    #[test]
-    fn nesting_is_bracketed_but_the_outermost_split_is_not() {
-        // main-left: one pane down the left, two stacked on the right.
-        let shape = split(
-            Side::Right,
-            Shape::pane("a"),
-            split(Side::Down, Shape::pane("b"), Shape::pane("c")),
-        );
-        assert_eq!(shape.sketch(), "▫│[▫─▫]");
-    }
-
-    #[test]
-    fn left_and_up_are_drawn_where_they_actually_land() {
-        // Splitting to the Left puts the new pane on the left of the screen,
-        // so the sketch must not simply follow first/second order.
-        let right = split(Side::Right, Shape::pane("old"), Shape::pane("new"));
-        let left = split(Side::Left, Shape::pane("old"), Shape::pane("new"));
-        assert_eq!(right.sketch(), left.sketch());
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn split(side: Side, first: Shape, second: Shape) -> Shape {
-        Shape::Split {
-            side,
-            first: Box::new(first),
-            second: Box::new(second),
-        }
     }
 
     fn grid() -> Shape {

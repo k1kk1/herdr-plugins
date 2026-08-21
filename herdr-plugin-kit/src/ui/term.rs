@@ -495,7 +495,14 @@ impl Term {
                 (Some(preview), true) => {
                     // A diagram is `2 * cells + 1` characters each way.
                     let cells_h = (room - 1) / 2;
-                    let cells_w = (width.saturating_sub(5)) / 2;
+                    let lines = 2 * cells_h + 1;
+                    // Shaped like a screen rather than stretched to the pane.
+                    // A terminal cell is about twice as tall as it is wide, so
+                    // 16:9 on screen is roughly 3.5 columns per line — running
+                    // to the full width instead gives a letterbox nothing on a
+                    // real monitor looks like.
+                    let across = (lines * 32 / 9).min(width.saturating_sub(4));
+                    let cells_w = across.saturating_sub(1) / 2;
                     let marked: Vec<&str> = preview.marked.iter().map(String::as_str).collect();
                     preview.shape.diagram_marking(cells_w, cells_h, &marked)
                 }
