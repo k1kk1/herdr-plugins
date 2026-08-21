@@ -29,6 +29,23 @@ tmux の `join-pane` / `break-pane` / `swap-pane` に相当する操作を、Her
 | Extract… | この Tab（Pane が抜けた後） | 新しい Tab |
 | Swap with… | この Tab（入れ替わる Pane） | 相手の Tab |
 | Fold into… | 閉じるこの Tab | 畳む先の Tab |
+| Gather | いまは N か所 | `Active Agents` に集まった姿 |
+| Restore | `Active Agents` | 元の N か所へ |
+
+Gather と Restore は互いの鏡像です。集約後の絵は**実際のプランナ**
+（`gather::layout::plan`）から描いているので、手描きの近似が本物とずれることが
+ありません。2枚なら横並び、4枚なら 2×2 と、Gather が本当に作る形が出ます。
+
+## Restore と Undo は別物です
+
+| | 戻すもの | 記録元 |
+|---|---|---|
+| `u` Undo | 直前の **Move / Swap / Extract / Fold** を1段階 | 操作の実行時 |
+| `r` Restore | **Gather で集めた Pane 全部**を元の Tab へ | Gather のセッション |
+
+**Undo は Gather を戻しません**（`undo::capture` は Move 系の経路からしか
+呼ばれません）。逆に Restore は Move を戻しません。行の説明文も
+「Gather した N 個を元の Tab へ」と、何を戻すのかが分かる書き方にしてあります。
 
 最後の Pane が抜けて **Tab ごと無くなる**場合は破線の空箱になります。
 空の実線ボックスだと「空の Tab が残る」という嘘になるので。

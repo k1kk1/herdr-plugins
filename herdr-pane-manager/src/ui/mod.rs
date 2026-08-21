@@ -266,17 +266,30 @@ fn manager_once(
     menu.row(Row::separator());
     // Gather is listed with the operations, but it acts on the whole session
     // rather than on the current pane (addendum §9).
+    let gathered = gather::session::load();
+    // Counted once and shared: the row's text and its picture are answers to
+    // the same question, and asking Herdr twice could give two of them.
+    let collecting = match &gathered {
+        Some(existing) => existing.origins.len(),
+        None => gather::count_active(herdr, config).unwrap_or(0),
+    };
+
     menu.item(
         Row::item("Gather Active Agents")
             .hotkey("g")
-            .secondary(gather_summary(herdr, config)),
+            .secondary(gather_summary(herdr, config))
+            .panels(gather_panels(collecting, config)),
         Choice::Gather,
     );
-    if gather::session::load().is_some() {
+    if gathered.is_some() {
         menu.item(
             Row::item("Restore Gathered Agents")
                 .hotkey("r")
-                .secondary("元の場所へ戻す"),
+                // Named for what it undoes, because `Undo` sits four rows up
+                // and the two take back different things: this one only ever
+                // reverses a Gather, and only Gather.
+                .secondary(format!("Gather した {collecting} 個を元の Tab へ"))
+                .panels(restore_panels(collecting, config)),
             Choice::Restore,
         );
     }
@@ -800,6 +813,58 @@ fn operation_preview(choice: &Choice, snapshot: &Snapshot, config: &Config) -> V
     }
 }
 
+/// The shape of one Gather tab holding `panes` agents.
+///
+/// Built from the real planner rather than a hand-drawn approximation, so the
+/// picture cannot drift away from what Gather actually produces.
+fn gathered_shape(panes: usize) -> Option<(Shape, Vec<String>)> {
+    let ids: Vec<String> = (0..panes.max(1)).map(|i| format!("{ARRIVING}{i}")).collect();
+    let plan = gather::layout::plan(&ids)?;
+    Some((plan.simulate(), ids))
+}
+
+/// How many tabs a Gather of `panes` agents would fill, for the caption.
+fn gather_caption(panes: usize, config: &Config, label: &str) -> String {
+    let per_tab = config.gather.per_tab().get();
+    let tabs = panes.div_ceil(per_tab.max(1));
+    if tabs > 1 {
+        format!("{label} ×{tabs}")
+    } else {
+        label.to_string()
+    }
+}
+
+fn gather_panels(panes: usize, config: &Config) -> Vec<Panel> {
+    if panes == 0 {
+        return Vec::new();
+    }
+    // Only the first tab is drawn; the caption carries the rest.
+    let per_tab = config.gather.per_tab().get();
+    let Some((shape, marked)) = gathered_shape(panes.min(per_tab)) else {
+        return Vec::new();
+    };
+    vec![
+        Panel::gone(format!("いまは {panes} か所")),
+        Panel::new(gather_caption(panes, config, &config.gather.tab_label), shape).marking(marked),
+    ]
+}
+
+fn restore_panels(panes: usize, config: &Config) -> Vec<Panel> {
+    let per_tab = config.gather.per_tab().get();
+    let Some((shape, marked)) = gathered_shape(panes.min(per_tab)) else {
+        return Vec::new();
+    };
+    // The mirror of Gather: the collected tab empties out and closes.
+    vec![
+        Panel::new(
+            gather_caption(panes, config, &config.gather.tab_label),
+            shape,
+        )
+        .marking(marked),
+        Panel::gone(format!("元の {panes} か所へ")),
+    ]
+}
+
 /// Stand-in id for a pane that is already in the destination.
 const ELSEWHERE: &str = "\u{1}elsewhere";
 
@@ -1068,5 +1133,52 @@ fn capitalize(text: &str) -> String {
     match chars.next() {
         Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
         None => String::new(),
+    }
+}
+
+#[cfg(test)]
+mod preview_tests {
+    use super::*;
+
+    fn signature(panes: usize) -> String {
+        gathered_shape(panes).unwrap().0.signature()
+    }
+
+    #[test]
+    fn the_gather_preview_is_drawn_by_the_real_planner() {
+        // Same arrangements `gather::layout::plan` documents. Built from the
+        // planner rather than sketched, so the picture cannot drift away from
+        // what Gather actually produces.
+        let id = |n: usize| format!("{ARRIVING}{n}");
+        // Two side by side.
+        assert_eq!(signature(2), format!("(r {} {})", id(0), id(1)));
+        // Four as a 2x2 grid: the top-right pane is split off before either
+        // column is divided, or it would only span half the tab's height.
+        assert_eq!(
+            signature(4),
+            format!("(r (d {} {}) (d {} {}))", id(0), id(2), id(1), id(3))
+        );
+    }
+
+    #[test]
+    fn every_pane_in_the_preview_is_marked() {
+        for panes in 1..=4 {
+            let (shape, marked) = gathered_shape(panes).unwrap();
+            assert_eq!(marked.len(), panes);
+            assert_eq!(shape.pane_ids().len(), panes);
+        }
+    }
+
+    #[test]
+    fn the_caption_counts_tabs_only_when_there_is_more_than_one() {
+        let mut config = Config::default();
+        config.gather.max_panes_per_tab = 2;
+        assert_eq!(gather_caption(2, &config, "A"), "A");
+        assert_eq!(gather_caption(5, &config, "A"), "A ×3");
+    }
+
+    #[test]
+    fn nothing_to_gather_draws_nothing() {
+        assert!(gather_panels(0, &Config::default()).is_empty());
     }
 }
