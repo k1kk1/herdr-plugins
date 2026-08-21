@@ -74,7 +74,7 @@ fn pick(
 
     let mut menu = Menu::new("Command Palette")
         .subtitle(subtitle)
-        .enter("実行")
+        .enter("run")
         .filterable()
         .numbered();
 

@@ -410,6 +410,7 @@ impl Term {
         };
 
         self.scroll = scroll_for(self.scroll, view.cursor, &heights, budget);
+        let align = secondary_column(&view.rows, width);
 
         let mut used = 0usize;
         for (index, row) in view.rows.iter().enumerate().skip(self.scroll) {
@@ -419,7 +420,7 @@ impl Term {
             used += heights[index];
             self.row_lines.push((line, index));
             let selected = view.cursor == Some(index);
-            self.render_row(row, selected, width, &mut line, height, view.accent)?;
+            self.render_row(row, selected, width, &mut line, height, view.accent, align)?;
         }
 
         if overflowing {
@@ -463,6 +464,7 @@ impl Term {
         line: &mut u16,
         height: u16,
         accent: Color,
+        align: usize,
     ) -> Result<()> {
         if *line >= height {
             return Ok(());
@@ -524,6 +526,11 @@ impl Term {
                 }
                 let mut text = row.primary.clone();
                 if let Some(secondary) = &row.secondary {
+                    // Pad to the column shared by every row on screen, so the
+                    // descriptions read down as one block instead of stepping
+                    // in and out with the length of each name.
+                    let pad = align.saturating_sub(columns(&text));
+                    text.push_str(&" ".repeat(pad));
                     text.push_str(&format!("  {secondary}"));
                 }
                 if selected {
@@ -700,6 +707,29 @@ fn scroll_for(current: usize, cursor: Option<usize>, heights: &[usize], budget: 
     scroll.min(max_start)
 }
 
+/// The column every row's secondary text starts at.
+///
+/// Rows are drawn one at a time, so without this the descriptions begin
+/// wherever each name happens to end and the column staggers down the screen.
+///
+/// Alignment is abandoned when the longest name takes more than a third of the
+/// width: in a filtered list of conversations the names run to whatever length
+/// they run to, and padding every row out to the longest would open a gutter
+/// wider than the text on either side of it.
+fn secondary_column(rows: &[Row], width: usize) -> usize {
+    let widest = rows
+        .iter()
+        .filter(|row| row.kind == RowKind::Item && row.secondary.is_some())
+        .map(|row| columns(&row.primary))
+        .max()
+        .unwrap_or(0);
+    if widest > width / 3 {
+        0
+    } else {
+        widest
+    }
+}
+
 /// Display width, counting CJK as two columns.
 fn columns(text: &str) -> usize {
     text.chars().map(char_width).sum()
@@ -862,6 +892,26 @@ mod tests {
     fn an_empty_list_scrolls_nowhere() {
         assert_eq!(scroll_for(3, None, &[], 10), 0);
         assert_eq!(scroll_for(3, Some(0), &[], 10), 0);
+    }
+
+    #[test]
+    fn descriptions_line_up_on_the_longest_name() {
+        let rows = vec![
+            Row::item("Swap").secondary("a"),
+            Row::item("Merge Tab").secondary("b"),
+            Row::header("ignored, and much much longer than any item"),
+            Row::item("no description here at all, also long"),
+        ];
+        // Only Item rows that actually have a description are measured.
+        assert_eq!(secondary_column(&rows, 80), columns("Merge Tab"));
+    }
+
+    #[test]
+    fn alignment_gives_up_rather_than_open_a_gutter() {
+        let rows = vec![Row::item("a name far too long to align against").secondary("x")];
+        assert_eq!(secondary_column(&rows, 40), 0);
+        // Same rows, more room: worth aligning again.
+        assert!(secondary_column(&rows, 200) > 0);
     }
 
     #[test]

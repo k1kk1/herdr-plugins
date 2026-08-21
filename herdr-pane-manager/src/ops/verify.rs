@@ -67,11 +67,8 @@ fn traded(herdr: &Herdr, applied: &Applied) -> Result<()> {
     Ok(())
 }
 
+/// The same name the menu entry uses, so a failure names the thing the user
+/// actually pressed.
 fn verb_label(verb: Verb) -> &'static str {
-    match verb {
-        Verb::Move => "Move",
-        Verb::Extract => "Extract",
-        Verb::Merge => "Merge",
-        Verb::Swap => "Swap",
-    }
+    verb.label()
 }

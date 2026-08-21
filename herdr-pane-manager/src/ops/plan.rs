@@ -28,7 +28,8 @@ impl Verb {
             Verb::Move => "Move",
             Verb::Swap => "Swap",
             Verb::Extract => "Extract",
-            Verb::Merge => "Merge",
+            // Named for the menu entry it undoes, not for the internal verb.
+            Verb::Merge => "Fold",
         }
     }
 }

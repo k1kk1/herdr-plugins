@@ -27,31 +27,14 @@ pub enum Arrangement {
 }
 
 impl Arrangement {
-    /// The name on the command line and in the manifest.
-    ///
-    /// Separate from [`Arrangement::title`], which is what a reader sees.
-    /// They used to be the same string, and translating the display name
-    /// silently broke `arrange grid` — the round-trip test caught it.
-    pub fn cli_name(self) -> &'static str {
-        match self {
-            Arrangement::Columns => "columns",
-            Arrangement::Rows => "rows",
-            Arrangement::Grid => "grid",
-            Arrangement::MainLeft => "main-left",
-            Arrangement::MainRight => "main-right",
-            Arrangement::MainTop => "main-top",
-        }
-    }
-
-    /// The name shown to the reader.
     pub fn title(self) -> &'static str {
         match self {
-            Arrangement::Columns => "横並び",
-            Arrangement::Rows => "縦積み",
-            Arrangement::Grid => "格子",
-            Arrangement::MainLeft => "左を大きく",
-            Arrangement::MainRight => "右を大きく",
-            Arrangement::MainTop => "上を大きく",
+            Arrangement::Columns => "Columns",
+            Arrangement::Rows => "Rows",
+            Arrangement::Grid => "Grid",
+            Arrangement::MainLeft => "Main Left",
+            Arrangement::MainRight => "Main Right",
+            Arrangement::MainTop => "Main Top",
         }
     }
 

@@ -250,8 +250,8 @@ mod tests {
     #[test]
     fn every_arrangement_name_round_trips_through_the_cli() {
         for arrangement in Arrangement::ALL {
-            let name = arrangement.cli_name();
-            assert_eq!(Arrangement::parse(name), Some(arrangement), "{name}");
+            let name = arrangement.title().to_lowercase().replace(' ', "-");
+            assert_eq!(Arrangement::parse(&name), Some(arrangement), "{name}");
         }
     }
 }

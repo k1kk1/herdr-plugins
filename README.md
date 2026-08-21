@@ -30,10 +30,10 @@ Codex / Claude / dev server / log tail は、移動・交換・統合・集約�
 | **Quick Move** | `1`–`9` で Tab 1〜9 へ即移動。確認なし | 追加仕様 §2 |
 | **Swap** | Pane 同士を交換。別 Tab・別 Workspace 可 | spec §9.5 / 追加仕様 §10 |
 | **Extract** | Pane を新しい Tab / Workspace へ切り出し | spec §9.6 |
-| **Merge** | Tab の Pane 群を別 Tab へ統合。split 構造を保持 | 追加仕様 §11 |
+| **Fold into** | Tab の Pane 群を別 Tab へ畳む。split 構造を保持 | 追加仕様 §11 |
 | **Gather** | 対応が必要な Agent を `Active Agents` Tab へ集約 | 追加仕様 §1–§19 |
 | **Restore** | 集約した Pane を元の位置へ戻す | 追加仕様 §12 |
-| **Undo** | 直前の Move / Extract / Merge / Swap を1段階戻す | — |
+| **Undo** | 直前の Move / Extract / Fold / Swap を1段階戻す | — |
 
 ### Layout Tools
 

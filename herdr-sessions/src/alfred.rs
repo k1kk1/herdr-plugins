@@ -719,8 +719,8 @@ mod tests {
             ..Default::default()
         };
         let line = subtitle(&session("work", true), &detail);
-        assert!(line.starts_with("起動中 · "), "{line}");
-        assert!(line.contains("Workspace 2"), "{line}");
+        assert!(line.starts_with("running · "), "{line}");
+        assert!(line.contains("2 workspaces"), "{line}");
     }
 
     #[test]

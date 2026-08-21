@@ -1,5 +1,5 @@
 id = "sessions"
-name = "セッション"
+name = "Sessions"
 version = "0.1.0"
 min_herdr_version = "0.8.0"
 description = "起動中・停止中の Herdr セッションを一覧して開く"
@@ -10,7 +10,7 @@ command = ["cargo", "build", "--release"]
 
 [[panes]]
 id = "sessions"
-title = "セッション"
+title = "Sessions"
 description = "Herdr セッションを開く"
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-sessions" ui']
 placement = "popup"
@@ -19,35 +19,35 @@ height = "60%"
 
 [[actions]]
 id = "open"
-title = "セッションを開く..."
+title = "Open Session..."
 description = "起動中・停止中のセッションを一覧し、新しいウィンドウで開く"
 contexts = ["global"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-sessions" launch open']
 
 [[actions]]
 id = "manage"
-title = "セッションを整理..."
+title = "Manage Sessions..."
 description = "起動中を停止、停止中を削除する"
 contexts = ["global"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-sessions" launch manage']
 
 [[actions]]
 id = "resume"
-title = "会話を再開..."
+title = "Resume Conversation..."
 description = "Claude Code / Codex の過去の会話を一覧し、このセッションで再開"
 contexts = ["global", "pane"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-sessions" launch all']
 
 [[actions]]
 id = "claude"
-title = "Claude Code の会話を再開..."
+title = "Resume Claude Code Session..."
 description = "Claude Code の過去の会話を一覧し、このセッションで再開"
 contexts = ["global", "pane"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-sessions" launch claude']
 
 [[actions]]
 id = "codex"
-title = "Codex の会話を再開..."
+title = "Resume Codex Session..."
 description = "Codex の過去の会話を一覧し、このセッションで再開"
 contexts = ["global", "pane"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-sessions" launch codex']

@@ -118,20 +118,20 @@ impl Mode {
 
     fn title(self) -> &'static str {
         match self {
-            Mode::Open => "セッションを開く",
-            Mode::Manage => "セッションを整理",
-            Mode::Agents => "会話を再開",
-            Mode::Claude => "Claude Code の会話を再開",
-            Mode::Codex => "Codex の会話を再開",
+            Mode::Open => "Open a session",
+            Mode::Manage => "Manage sessions",
+            Mode::Agents => "Resume a conversation",
+            Mode::Claude => "Resume a Claude Code session",
+            Mode::Codex => "Resume a Codex session",
         }
     }
 
     /// The verb for Enter on this list.
     fn enter_verb(self) -> &'static str {
         match self {
-            Mode::Open => "開く",
-            Mode::Manage => "決定",
-            Mode::Agents | Mode::Claude | Mode::Codex => "再開",
+            Mode::Open => "open",
+            Mode::Manage => "select",
+            Mode::Agents | Mode::Claude | Mode::Codex => "resume",
         }
     }
 
@@ -143,11 +143,11 @@ impl Mode {
     fn subtitle(self, modified_enter: bool) -> String {
         let mut parts = Vec::new();
         if self.lists_agents() {
-            parts.push("Enter 新しい Workspace".to_string());
+            parts.push("Enter workspace".to_string());
             if modified_enter {
-                parts.push("Shift+Enter 新しい Tab".to_string());
+                parts.push("Shift+Enter tab".to_string());
             }
-            parts.push("Opt+Enter 分割".to_string());
+            parts.push("Opt+Enter split".to_string());
         }
         parts.push(format!("Shift+Tab {}", self.other_family().family()));
         parts.join(" · ")
@@ -169,9 +169,9 @@ impl Mode {
     /// What the family is called, for the Shift+Tab hint.
     fn family(self) -> &'static str {
         if self.lists_agents() {
-            "会話"
+            "conversations"
         } else {
-            "Herdr セッション"
+            "herdr sessions"
         }
     }
 }
@@ -289,7 +289,7 @@ impl Listing {
             .subtitle(mode.subtitle(modified_enter))
             .tabs(mode.chips())
             .enter(mode.enter_verb())
-            .tab("一覧")
+            .tab("list")
             .filterable()
             .numbered();
 
@@ -344,7 +344,7 @@ fn agent_row(session: &AgentSession, show_tool: bool) -> Row {
     if session.open {
         // Deliberately hedged. Herdr does not expose the agent's session id,
         // so this is a directory-and-title match, not an identity.
-        trailing.push("開いていそう".into());
+        trailing.push("looks open".into());
     }
 
     let mut second = vec![session.where_line()];
@@ -385,10 +385,10 @@ fn row(session: &Session, detail: &Detail) -> Row {
     if session.default {
         // The session a bare `herdr` attaches to, which is worth marking
         // because it is the one you get without asking for it.
-        trailing.push("既定".into());
+        trailing.push("default".into());
     }
     if session.is_current() {
-        trailing.push("現在地".into());
+        trailing.push("you are here".into());
     }
 
     let mut second = vec![detail.summary()];
@@ -438,14 +438,14 @@ fn manage(term: &mut Term, session: &Session) -> Result<Option<Outcome>> {
         menu.item(
             Row::item("Stop")
                 .hotkey("s")
-                .secondary("panes keep their state and come back on attach"),
+                .secondary("Pane の状態は残り、attach で戻る"),
             Action::Stop,
         );
     } else {
         menu.item(
             Row::item("Delete")
                 .hotkey("d")
-                .secondary("discards the saved layout for good"),
+                .secondary("保存された配置ごと破棄する"),
             Action::Delete,
         );
     }
@@ -503,9 +503,9 @@ fn cli(args: &[&str]) -> Result<()> {
 }
 
 fn confirm(term: &mut Term, question: &str) -> Result<bool> {
-    let mut menu = Menu::new(question).enter("実行");
-    menu.item(Row::item("はい").hotkey("y"), true);
-    menu.item(Row::item("いいえ").hotkey("n"), false);
+    let mut menu = Menu::new(question).enter("confirm");
+    menu.item(Row::item("Yes").hotkey("y"), true);
+    menu.item(Row::item("No").hotkey("n"), false);
     Ok(menu.run(term)?.unwrap_or(false))
 }
 
@@ -594,17 +594,17 @@ mod tests {
     #[test]
     fn the_subtitle_carries_the_keys_the_key_line_cannot() {
         let agents = Mode::Agents.subtitle(true);
-        assert!(agents.contains("Enter 新しい Workspace"), "{agents}");
-        assert!(agents.contains("Shift+Enter 新しい Tab"), "{agents}");
-        assert!(agents.contains("Opt+Enter 分割"), "{agents}");
-        assert!(agents.contains("Shift+Tab Herdr セッション"), "{agents}");
+        assert!(agents.contains("Enter workspace"), "{agents}");
+        assert!(agents.contains("Shift+Enter tab"), "{agents}");
+        assert!(agents.contains("Opt+Enter split"), "{agents}");
+        assert!(agents.contains("Shift+Tab herdr sessions"), "{agents}");
 
         // A terminal that cannot report Shift+Enter must not be told about it.
         assert!(!Mode::Agents.subtitle(false).contains("Shift+Enter"));
 
         // The Herdr lists have no placement keys, only the family switch.
         let open = Mode::Open.subtitle(true);
-        assert_eq!(open, "Shift+Tab 会話");
+        assert_eq!(open, "Shift+Tab conversations");
     }
 
     #[test]

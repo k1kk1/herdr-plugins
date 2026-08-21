@@ -43,35 +43,35 @@ command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manag
 
 [[actions]]
 id = "move"
-title = "Tab へ移動..."
+title = "Move to Tab…"
 description = "この Pane を別の Tab へ移す"
 contexts = ["pane"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" launch move']
 
 [[actions]]
 id = "swap"
-title = "Pane と交換..."
-description = "この Pane を別の Pane と入れ替える。別 Tab でも可"
+title = "Swap with Pane…"
+description = "この Pane を別の Pane と入れ替える。別の Tab でも可"
 contexts = ["pane"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" launch swap']
 
 [[actions]]
 id = "extract"
-title = "新しい Tab へ切り出し"
+title = "Extract to New Tab"
 description = "この Pane を独立した Tab へ切り出す"
 contexts = ["pane"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" extract']
 
 [[actions]]
 id = "merge-tab"
-title = "別の Tab へ統合..."
+title = "Fold Into Tab…"
 description = "この Tab の Pane をすべて別の Tab へ移す"
 contexts = ["tab", "pane"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" launch merge']
 
 [[actions]]
 id = "undo"
-title = "直前の Pane 操作を元に戻す"
+title = "Undo Last Pane Operation"
 description = "直前の 移動 / 切り出し / 統合 / 交換 を戻す"
 contexts = ["global", "pane", "tab"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" undo']
@@ -83,93 +83,93 @@ command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manag
 
 [[actions]]
 id = "gather-active"
-title = "Agent を集約"
+title = "Gather Active Agents"
 description = "対応が必要な Agent を Active Agents Tab へ集める"
 contexts = ["global", "pane", "tab"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" gather']
 
 [[actions]]
 id = "refresh-gather"
-title = "集約を組み直す"
+title = "Refresh Gathered Agents"
 description = "Agent の今の状態で Active Agents Tab を作り直す"
 contexts = ["global", "tab"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" refresh-gather']
 
 [[actions]]
 id = "restore-gather"
-title = "集約を元に戻す"
+title = "Restore Gathered Agents"
 description = "集約した Pane を元の Tab へ戻す"
 contexts = ["global", "tab", "pane"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" restore-gather']
 
 [[actions]]
 id = "gather-active-2"
-title = "Agent を集約（1 Tab に 2 つ）"
+title = "Gather Active Agents (2 per tab)"
 contexts = ["global"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" gather 2']
 
 [[actions]]
 id = "gather-active-3"
-title = "Agent を集約（1 Tab に 3 つ）"
+title = "Gather Active Agents (3 per tab)"
 contexts = ["global"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" gather 3']
 
 [[actions]]
 id = "gather-active-4"
-title = "Agent を集約（1 Tab に 4 つ）"
+title = "Gather Active Agents (4 per tab)"
 contexts = ["global"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" gather 4']
 
 [[actions]]
 id = "quick-move-1"
-title = "Tab 1 へすぐ移動"
+title = "Quick Move to Tab 1"
 contexts = ["pane"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" quick-move 1']
 
 [[actions]]
 id = "quick-move-2"
-title = "Tab 2 へすぐ移動"
+title = "Quick Move to Tab 2"
 contexts = ["pane"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" quick-move 2']
 
 [[actions]]
 id = "quick-move-3"
-title = "Tab 3 へすぐ移動"
+title = "Quick Move to Tab 3"
 contexts = ["pane"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" quick-move 3']
 
 [[actions]]
 id = "quick-move-4"
-title = "Tab 4 へすぐ移動"
+title = "Quick Move to Tab 4"
 contexts = ["pane"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" quick-move 4']
 
 [[actions]]
 id = "quick-move-5"
-title = "Tab 5 へすぐ移動"
+title = "Quick Move to Tab 5"
 contexts = ["pane"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" quick-move 5']
 
 [[actions]]
 id = "quick-move-6"
-title = "Tab 6 へすぐ移動"
+title = "Quick Move to Tab 6"
 contexts = ["pane"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" quick-move 6']
 
 [[actions]]
 id = "quick-move-7"
-title = "Tab 7 へすぐ移動"
+title = "Quick Move to Tab 7"
 contexts = ["pane"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" quick-move 7']
 
 [[actions]]
 id = "quick-move-8"
-title = "Tab 8 へすぐ移動"
+title = "Quick Move to Tab 8"
 contexts = ["pane"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" quick-move 8']
 
 [[actions]]
 id = "quick-move-9"
-title = "Tab 9 へすぐ移動"
+title = "Quick Move to Tab 9"
 contexts = ["pane"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" quick-move 9']
