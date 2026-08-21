@@ -280,6 +280,27 @@ fn info_plist() -> Result<String> {
             "export HERDR_BIN_PATH={herdr:?}\nexec {me:?} {args}\n"
         ))
     };
+    // How an action receives the chosen item's argument.
+    //
+    // Alfred hands it over by substituting `{{query}}` into the script text
+    // before running it — *not* as a positional parameter. Setting the
+    // "input as argv" option did not change that: measured, the script ran as
+    // `/bin/bash` with `$1` empty, and the item silently did nothing.
+    //
+    // There is deliberately no argv fallback. Guarding one costs a second
+    // `{{query}}` in the text, and Alfred substitutes *every* occurrence — so
+    // the guard is rewritten too and the fallback fires precisely when
+    // substitution worked. If substitution ever stops, the literal token
+    // reaches the binary and comes back as a legible error naming it, which
+    // beats a fallback that breaks the working case.
+    //
+    // Single-quoted: the value is `<placement>:<uuid>`, so there is nothing in
+    // it for a shell to do, and nothing it could do if there were.
+    let action = |verb: &str| {
+        xml(&format!(
+            "export HERDR_BIN_PATH={herdr:?}\nexec {me:?} {verb} '{{query}}'\n"
+        ))
+    };
     // One connection per accepted modifier. The item's `mods` decide what
     // argument is handed on, but a modifier with no connection has nothing to
     // hand it to — Shift+Enter would simply do nothing.
@@ -306,9 +327,9 @@ fn info_plist() -> Result<String> {
     .collect();
 
     let list_script = script("alfred");
-    let open_script = script(r#"open "$1""#);
+    let open_script = action("open");
     let resume_list_script = script("alfred resume");
-    let resume_script = script(r#"resume "$1""#);
+    let resume_script = action("resume");
 
     Ok(format!(
         r##"<?xml version="1.0" encoding="UTF-8"?>
@@ -456,7 +477,7 @@ fn info_plist() -> Result<String> {
 				<key>script</key>
 				<string>{resume_script}</string>
 				<key>scriptargtype</key>
-				<integer>0</integer>
+				<integer>1</integer>
 				<key>scriptfile</key>
 				<string></string>
 				<key>type</key>
@@ -479,7 +500,7 @@ fn info_plist() -> Result<String> {
 				<key>script</key>
 				<string>{open_script}</string>
 				<key>scriptargtype</key>
-				<integer>0</integer>
+				<integer>1</integer>
 				<key>scriptfile</key>
 				<string></string>
 				<key>type</key>

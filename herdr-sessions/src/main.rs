@@ -129,6 +129,14 @@ fn run() -> Result<()> {
             };
             // Alfred carries the placement in the argument, because a Script
             // Filter's modifier keys can only change the text they hand on.
+            if target.contains("{query}") {
+                bail!(
+                    "Alfred passed the literal `{{query}}` instead of the chosen item.\n\
+                     Its Script Filter substitution is not running — re-run\n\
+                     `herdr-sessions alfred install --force`, or check the action's\n\
+                     input setting in Alfred."
+                );
+            }
             let (placement, id) = split_placement(target, config.resume_in)?;
             let Some(session) = agent_sessions(kind, usize::MAX, None)?
                 .into_iter()
