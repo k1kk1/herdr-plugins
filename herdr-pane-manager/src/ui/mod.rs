@@ -113,7 +113,7 @@ fn dispatch(
 ) -> Result<Option<Outcome>> {
     match entry {
         Entry::Manager => manager(term, herdr, snapshot, config, config_warning),
-        Entry::Move => move_flow(term, herdr, snapshot, config),
+        Entry::Move => move_flow(term, herdr, snapshot, config, false),
         Entry::Swap => swap_flow(term, herdr, snapshot, config),
         Entry::Merge => merge_flow(term, herdr, snapshot, config),
     }
@@ -170,7 +170,7 @@ fn manager(
     menu.item(
         Row::item("Move to…")
             .hotkey("m")
-            .secondary("この Pane を別の Tab へ移す")
+            .secondary("この Pane を別の Tab へ移す  ·  Shift+M で位置も指定")
             .preview_of(source_preview(snapshot, false)),
         Choice::Move,
     );
@@ -237,10 +237,13 @@ fn manager(
         return Ok(None);
     };
 
-    // Shift+Enter on a quick row means "that tab, but let me say where".
+    // Shift means "that, but let me say where" — on a quick row it names the
+    // tab and stops to ask, on `Move to…` it carries the same intent into the
+    // flow so the placement step appears without asking for Shift twice.
     // The plain key stays the fast path it has always been.
-    let choice = match (choice, menu.accepted_with()) {
-        (Choice::QuickMove(position), Key::ShiftEnter) => Choice::DetailedMove(position),
+    let detailed = menu.accepted_with() == Key::ShiftEnter;
+    let choice = match (choice, detailed) {
+        (Choice::QuickMove(position), true) => Choice::DetailedMove(position),
         (choice, _) => choice,
     };
 
@@ -249,7 +252,7 @@ fn manager(
         Choice::Undo => undo::undo(herdr).map(Some),
         Choice::Gather => gather_flow(term, herdr, config),
         Choice::Restore => gather::restore(herdr).map(Some),
-        Choice::Move => move_flow(term, herdr, snapshot, config),
+        Choice::Move => move_flow(term, herdr, snapshot, config, detailed),
         Choice::Swap => swap_flow(term, herdr, snapshot, config),
         Choice::Merge => merge_flow(term, herdr, snapshot, config),
         // Immediate, no confirmation (spec §9.6).
@@ -431,18 +434,25 @@ fn detailed_move_into(
     )
 }
 
+/// `forced_detail` carries a Shift held in the menu that opened this one, so
+/// the placement step appears without the reader having to hold it again.
 fn move_flow(
     term: &mut Term,
     herdr: &Herdr,
     snapshot: &Snapshot,
     config: &Config,
+    forced_detail: bool,
 ) -> Result<Option<Outcome>> {
     let mut menu = destination_menu(
         "Move to…",
         format!(
             "{} を、選んだ Tab へ移します{}",
             source_line(snapshot, config),
-            if term.distinguishes_modified_enter() {
+            // Say that the Shift already held has been taken: otherwise this
+            // screen looks identical either way and the key feels ignored.
+            if forced_detail {
+                " · 位置を指定します"
+            } else if term.distinguishes_modified_enter() {
                 " · Shift+Enter で位置を指定"
             } else {
                 ""
@@ -456,7 +466,7 @@ fn move_flow(
         Some(config.default_move_direction.resolve().unwrap_or(Side::Right)),
     );
     let picked = menu.run(term)?;
-    let detailed = menu.accepted_with() == Key::ShiftEnter;
+    let detailed = forced_detail || menu.accepted_with() == Key::ShiftEnter;
     // Whatever was typed becomes the name of a newly created tab or
     // workspace (addendum §5).
     let query = menu.query().trim().to_string();

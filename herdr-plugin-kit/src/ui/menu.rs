@@ -309,6 +309,16 @@ impl<T: Clone> Menu<T> {
         })
     }
 
+    /// Whether `ch` is a hotkey pressed with Shift, in a menu that has asked
+    /// for Shift+Enter.
+    ///
+    /// Digits are excluded because their shifted forms are punctuation whose
+    /// identity depends on the keyboard layout — `!` on one, `"` on another.
+    /// Quick-move rows keep Shift+Enter as their only modified path.
+    fn shifted(&self, ch: char) -> bool {
+        ch.is_uppercase() && self.accept_also.contains(&Key::ShiftEnter)
+    }
+
     /// Show the menu and return the chosen value, or `None` if cancelled.
     pub fn run(&mut self, term: &mut Term) -> Result<Option<T>> {
         self.run_with(term, |_| Interrupt::Unhandled)
@@ -432,6 +442,18 @@ impl<T: Clone> Menu<T> {
                     // 1..9 would break the documented Quick Move keys.
                     if let Some(index) = self.by_hotkey(ch) {
                         if ch.is_ascii_digit() || self.filter.is_none() {
+                            // A hotkey is Enter on its row, and its shifted
+                            // form is Shift+Enter on that row — so the two ways
+                            // of choosing a row offer the same two outcomes.
+                            //
+                            // This also reaches the modified action on
+                            // terminals that cannot report Shift+Enter at all,
+                            // since `M` is just a character.
+                            self.accepted_with = if self.shifted(ch) {
+                                Key::ShiftEnter
+                            } else {
+                                Key::Enter
+                            };
                             return Ok(self.values[index].clone());
                         }
                     }
@@ -683,5 +705,40 @@ mod tests {
         menu.item_matching(Row::item("Codex"), 1, "AgentRecipes");
         menu.filter = Some("agentrec".into());
         assert_eq!(menu.visible(), vec![0]);
+    }
+}
+
+#[cfg(test)]
+mod shifted_hotkey_tests {
+    use super::*;
+    use crate::ui::term::Row;
+
+    fn menu() -> Menu<&'static str> {
+        let mut menu = Menu::new("t").accept_also(&[Key::ShiftEnter]);
+        menu.item(Row::item("Move").hotkey("m"), "move");
+        menu.item(Row::item("Two").hotkey("2"), "two");
+        menu
+    }
+
+    #[test]
+    fn a_shifted_letter_finds_the_same_row_as_the_plain_one() {
+        let menu = menu();
+        assert_eq!(menu.by_hotkey('m'), menu.by_hotkey('M'));
+    }
+
+    #[test]
+    fn only_the_shifted_form_counts_as_the_modified_choice() {
+        let menu = menu();
+        assert!(menu.shifted('M'));
+        assert!(!menu.shifted('m'));
+        // Digits have no shifted form that is layout-independent.
+        assert!(!menu.shifted('2'));
+    }
+
+    #[test]
+    fn a_menu_that_never_asked_for_shift_enter_ignores_case() {
+        let mut plain: Menu<&str> = Menu::new("t");
+        plain.item(Row::item("Move").hotkey("m"), "move");
+        assert!(!plain.shifted('M'));
     }
 }
