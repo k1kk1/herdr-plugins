@@ -26,6 +26,7 @@ use herdr_plugin_kit::{bail, Context, Result};
 use serde_json::{json, Value};
 
 use crate::open::Config;
+use crate::resume::Where;
 use crate::session::{self, Detail, Session};
 
 /// Alfred's own filtering is used, so every session is emitted every time and
@@ -78,11 +79,30 @@ fn resume_item(session: &crate::agents::AgentSession) -> Value {
     if let Some(context) = session.context_line() {
         subtitle.push(context);
     }
+    // Alfred's modifier keys can only change the text an item hands on, so the
+    // placement rides along in the argument. The three match the picker's
+    // Enter keys exactly — the same gesture has to mean the same thing whether
+    // it is pressed in Herdr or in Alfred.
+    let arg = |placement: Where| format!("{}:{}", placement.name(), session.id);
+    let mods = json!({
+        "shift": {
+            "valid": true,
+            "arg": arg(Where::Tab),
+            "subtitle": "Resume in a new tab of the current workspace",
+        },
+        "alt": {
+            "valid": true,
+            "arg": arg(Where::Split),
+            "subtitle": "Resume beside the pane you were on",
+        },
+    });
+
     let mut item = json!({
         "uid": format!("herdr-conversation:{}", session.id),
         "title": session.heading(),
         "subtitle": subtitle.join(" · "),
-        "arg": session.id,
+        "arg": arg(Where::Workspace),
+        "mods": mods,
         // The tool name and the path are in the subtitle, but Alfred only
         // matches what it is told to, so they go here too.
         "match": session.searchable(),
@@ -260,6 +280,31 @@ fn info_plist() -> Result<String> {
             "export HERDR_BIN_PATH={herdr:?}\nexec {me:?} {args}\n"
         ))
     };
+    // One connection per accepted modifier. The item's `mods` decide what
+    // argument is handed on, but a modifier with no connection has nothing to
+    // hand it to — Shift+Enter would simply do nothing.
+    let resume_connections: String = [
+        (0, ""),
+        (131_072, "in a new tab"),   // NSEventModifierFlagShift
+        (524_288, "beside this pane"), // NSEventModifierFlagOption
+    ]
+    .iter()
+    .map(|(modifiers, subtext)| {
+        format!(
+            "			<dict>\n\
+             				<key>destinationuid</key>\n\
+             				<string>{resume_action_uid}</string>\n\
+             				<key>modifiers</key>\n\
+             				<integer>{modifiers}</integer>\n\
+             				<key>modifiersubtext</key>\n\
+             				<string>{subtext}</string>\n\
+             				<key>vitoclose</key>\n\
+             				<false/>\n\
+             			</dict>\n"
+        )
+    })
+    .collect();
+
     let list_script = script("alfred");
     let open_script = script(r#"open "$1""#);
     let resume_list_script = script("alfred resume");
@@ -291,17 +336,7 @@ fn info_plist() -> Result<String> {
 		</array>
 		<key>{resume_filter_uid}</key>
 		<array>
-			<dict>
-				<key>destinationuid</key>
-				<string>{resume_action_uid}</string>
-				<key>modifiers</key>
-				<integer>0</integer>
-				<key>modifiersubtext</key>
-				<string></string>
-				<key>vitoclose</key>
-				<false/>
-			</dict>
-		</array>
+{resume_connections}		</array>
 	</dict>
 	<key>createdby</key>
 	<string>herdr-sessions</string>
@@ -552,6 +587,30 @@ mod tests {
     }
 
     #[test]
+    fn a_conversation_offers_all_three_placements() {
+        let session = crate::agents::AgentSession {
+            id: "abc".into(),
+            title: Some("Build it".into()),
+            ..Default::default()
+        };
+        let item = resume_item(&session);
+        // Plain Enter and each modifier must name a different placement, or
+        // holding the key would silently do the same thing as not holding it.
+        let plain = item["arg"].as_str().unwrap();
+        let shift = item["mods"]["shift"]["arg"].as_str().unwrap();
+        let alt = item["mods"]["alt"]["arg"].as_str().unwrap();
+        assert_eq!(plain, "workspace:abc");
+        assert_eq!(shift, "tab:abc");
+        assert_eq!(alt, "split:abc");
+        // Every one of them has to survive the trip back.
+        for arg in [plain, shift, alt] {
+            let (head, id) = arg.split_once(':').unwrap();
+            assert!(Where::parse(head).is_some(), "{head}");
+            assert_eq!(id, "abc");
+        }
+    }
+
+    #[test]
     fn a_subtitle_leads_with_the_state() {
         let detail = Detail {
             workspaces: 2,
@@ -586,6 +645,17 @@ mod tests {
     }
 
     #[test]
+    fn the_conversation_keyword_is_connected_for_every_modifier() {
+        let plist = info_plist().unwrap();
+        // Plain Enter plus the two modifiers, against one for the session
+        // keyword: four connections in all.
+        assert_eq!(plist.matches("destinationuid").count(), 4);
+        for modifiers in ["<integer>131072</integer>", "<integer>524288</integer>"] {
+            assert!(plist.contains(modifiers), "missing connection for {modifiers}");
+        }
+    }
+
+    #[test]
     fn the_generated_plist_wires_both_keywords_end_to_end() {
         let plist = info_plist().unwrap();
         assert!(plist.contains(BUNDLE_ID));
@@ -606,7 +676,7 @@ mod tests {
         for uid in ["filter", "action"] {
             let _ = uid;
         }
-        assert_eq!(plist.matches("destinationuid").count(), 2);
+        assert_eq!(plist.matches("destinationuid").count(), 4);
     }
 
     #[test]

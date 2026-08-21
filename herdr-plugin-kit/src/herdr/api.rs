@@ -126,17 +126,27 @@ impl Herdr {
     ///
     /// `args` is passed straight through as argv, which is what makes
     /// `claude --resume <id>` and `codex resume <id>` reachable.
-    pub fn start_agent(&self, pane_id: &str, kind: &str, args: &[String]) -> Result<()> {
+    ///
+    /// `name` and `kind` are different things: `kind` says which agent this
+    /// is, `name` is the handle it is addressed by, and Herdr requires that
+    /// handle to be unique — starting a second agent under a name already in
+    /// use fails with `agent_name_taken`.
+    pub fn start_agent(&self, pane_id: &str, name: &str, kind: &str, args: &[String]) -> Result<()> {
         self.call(
             "agent.start",
             json!({
                 "pane_id": pane_id,
-                "name": kind,
+                "name": name,
                 "kind": kind,
                 "args": args,
             }),
         )
         .map(|_| ())
+    }
+
+    pub fn close_pane(&self, pane_id: &str) -> Result<()> {
+        self.call("pane.close", json!({ "pane_id": pane_id }))
+            .map(|_| ())
     }
 
     pub fn pane(&self, pane_id: &str) -> Result<Pane> {

@@ -59,7 +59,8 @@ Usage:
       unless one is named; all of them unless --limit or the `recent`
       setting says otherwise.
 
-  herdr-sessions resume [all|claude|codex] <id>
+  herdr-sessions resume [all|claude|codex] [<placement>:]<id>
+      Placement is workspace, tab or split; it defaults to `resume_in`.
       Resume a conversation in this Herdr session.
 
   herdr-sessions open <name>
@@ -120,12 +121,15 @@ fn run() -> Result<()> {
         "resume" => {
             // The tool is optional: an id is unique across both, so
             // `resume <id>` means the same thing as `resume all <id>`.
-            let (kind, id) = match args.get(2) {
-                Some(id) => (agent_kind_arg(&args)?, id),
+            let (kind, target) = match args.get(2) {
+                Some(target) => (agent_kind_arg(&args)?, target),
                 None => (None, args.get(1).filter(|a| !a.is_empty()).ok_or_else(|| {
                     herdr_plugin_kit::anyhow!("resume needs a session id\n\n{USAGE}")
                 })?),
             };
+            // Alfred carries the placement in the argument, because a Script
+            // Filter's modifier keys can only change the text they hand on.
+            let (placement, id) = split_placement(target, config.resume_in)?;
             let Some(session) = agent_sessions(kind, usize::MAX, None)?
                 .into_iter()
                 .find(|s| s.id == *id)
@@ -133,7 +137,7 @@ fn run() -> Result<()> {
                 let scope = kind.map_or("any tool's", |k| k.label());
                 bail!("no {scope} session with id `{id}`");
             };
-            resume::anywhere(&session, &config)
+            resume::anywhere(&session, &config, placement)
         }
         "open" => {
             let Some(name) = args.get(1) else {
@@ -172,6 +176,22 @@ fn run() -> Result<()> {
         }
         other => bail!("unknown command `{other}`\n\n{USAGE}"),
     }
+}
+
+/// Split a `<placement>:<id>` argument, defaulting when there is no prefix.
+///
+/// Ids are UUIDs and never contain a colon, so the split is unambiguous.
+fn split_placement(
+    target: &str,
+    default: resume::Where,
+) -> Result<(resume::Where, String)> {
+    let Some((head, rest)) = target.split_once(':') else {
+        return Ok((default, target.to_string()));
+    };
+    let Some(placement) = resume::Where::parse(head) else {
+        bail!("unknown placement `{head}` — expected workspace, tab or split");
+    };
+    Ok((placement, rest.to_string()))
 }
 
 /// The agent a subcommand means. `None` means every one of them.
@@ -239,6 +259,20 @@ mod tests {
 
     fn args(raw: &[&str]) -> Vec<String> {
         raw.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn a_placement_prefix_is_optional_and_a_bare_id_keeps_the_default() {
+        let id = "3ebd1a0d-395a-4eb0-815c-9c6184d88d67";
+        assert_eq!(
+            split_placement(id, resume::Where::Workspace).unwrap(),
+            (resume::Where::Workspace, id.to_string())
+        );
+        assert_eq!(
+            split_placement(&format!("split:{id}"), resume::Where::Workspace).unwrap(),
+            (resume::Where::Split, id.to_string())
+        );
+        assert!(split_placement(&format!("nowhere:{id}"), resume::Where::Tab).is_err());
     }
 
     #[test]
