@@ -439,7 +439,15 @@ fn move_flow(
 ) -> Result<Option<Outcome>> {
     let mut menu = destination_menu(
         "Move to…",
-        format!("{} を、選んだ Tab へ移します", source_line(snapshot, config)),
+        format!(
+            "{} を、選んだ Tab へ移します{}",
+            source_line(snapshot, config),
+            if term.distinguishes_modified_enter() {
+                " · Shift+Enter で位置を指定"
+            } else {
+                ""
+            }
+        ),
         snapshot.move_destinations(),
         snapshot,
         true,
@@ -448,6 +456,7 @@ fn move_flow(
         Some(config.default_move_direction.resolve().unwrap_or(Side::Right)),
     );
     let picked = menu.run(term)?;
+    let detailed = menu.accepted_with() == Key::ShiftEnter;
     // Whatever was typed becomes the name of a newly created tab or
     // workspace (addendum §5).
     let query = menu.query().trim().to_string();
@@ -460,6 +469,9 @@ fn move_flow(
         Pick::Tab(tab_id) => {
             // Advanced Move: name the pane to split, rather than letting Herdr
             // pick the destination tab's focused one (spec §4.1).
+            if detailed {
+                return detailed_move_into(term, herdr, snapshot, config, &tab_id);
+            }
             let target_pane = if config.advanced_move {
                 match choose_target_pane(term, snapshot, &tab_id, config)? {
                     Some(target) => target,
@@ -714,7 +726,11 @@ fn destination_menu(
 ) -> Menu<Pick> {
     let mut menu = Menu::new(title)
         .subtitle(subtitle)
-        .filterable();
+        .filterable()
+        // Same bargain as the quick rows: Enter takes the settings, Shift+Enter
+        // stops to ask. Binding it in both places means it does not matter
+        // which list the reader happens to be looking at.
+        .accept_also(&[Key::ShiftEnter]);
 
     if destinations.is_empty() && !offer_new {
         menu.row(Row::note("このセッションに他の Tab がありません。"));
