@@ -81,7 +81,7 @@ pub fn run(herdr: &Herdr, entry: Entry, source_pane: Pane) -> Result<Option<Outc
 /// Show a failure and ask whether to try again with fresh state.
 fn retry(term: &mut Term, err: &anyhow::Error) -> Result<bool> {
     let mut menu = Menu::new("Pane Manager")
-        .subtitle("Nothing was left half-done.");
+        .subtitle("中途半端な状態にはなっていません。");
     for line in err.to_string().lines() {
         menu.row(Row::note(line.to_string()));
     }
@@ -92,12 +92,12 @@ fn retry(term: &mut Term, err: &anyhow::Error) -> Result<bool> {
     }
     menu.row(Row::separator());
     menu.item(
-        Row::item("Try again")
+        Row::item("やり直す")
             .hotkey("r")
-            .secondary("with the latest state"),
+            .secondary("最新の状態で組み直す"),
         true,
     );
-    menu.item(Row::item("Close").hotkey("q"), false);
+    menu.item(Row::item("閉じる").hotkey("q"), false);
     Ok(menu.run(term)?.unwrap_or(false))
 }
 
@@ -144,7 +144,7 @@ fn manager(
         .collect();
 
     if !quick.is_empty() {
-        menu.row(Row::header("Quick move current pane to"));
+        menu.row(Row::header("現在の Pane をすぐ移動"));
         for (position, name, pane_count) in quick {
             let panes = if pane_count == 1 { "pane" } else { "panes" };
             menu.item(
@@ -158,27 +158,27 @@ fn manager(
     }
 
     menu.item(
-        Row::item("Detailed Move")
+        Row::item("詳しく指定して移動")
             .hotkey("m")
-            .secondary("choose tab, side and size"),
+            .secondary("Tab・向き・大きさを選ぶ"),
         Choice::Move,
     );
     menu.item(
-        Row::item("Swap")
+        Row::item("交換")
             .hotkey("s")
-            .secondary("exchange with another pane"),
+            .secondary("別の Pane と入れ替える"),
         Choice::Swap,
     );
     menu.item(
-        Row::item("Extract")
+        Row::item("切り出し")
             .hotkey("e")
-            .secondary("split out into a tab of its own"),
+            .secondary("独立した Tab へ切り出す"),
         Choice::Extract,
     );
     menu.item(
-        Row::item("Merge Tab")
+        Row::item("Tab を統合")
             .hotkey("c")
-            .secondary("fold this tab into another"),
+            .secondary("この Tab を別の Tab へ畳む"),
         Choice::Merge,
     );
 
@@ -187,7 +187,7 @@ fn manager(
     if let Some(record) = undo::load() {
         menu.row(Row::separator());
         menu.item(
-            Row::item("Undo")
+            Row::item("元に戻す")
                 .hotkey("u")
                 .secondary(format!("take back the {}", record.describe())),
             Choice::Undo,
@@ -198,22 +198,22 @@ fn manager(
     // Gather is listed with the operations, but it acts on the whole session
     // rather than on the current pane (addendum §9).
     menu.item(
-        Row::item("Gather Active Agents")
+        Row::item("Agent を集約")
             .hotkey("g")
             .secondary(gather_summary(herdr, config)),
         Choice::Gather,
     );
     if gather::session::load().is_some() {
         menu.item(
-            Row::item("Restore Gathered Agents")
+            Row::item("集約を元に戻す")
                 .hotkey("r")
-                .secondary("put them back where they were"),
+                .secondary("元の場所へ戻す"),
             Choice::Restore,
         );
     }
 
     menu.row(Row::separator());
-    menu.item(Row::item("Cancel").hotkey("q"), Choice::Cancel);
+    menu.item(Row::item("やめる").hotkey("q"), Choice::Cancel);
     if let Some(warning) = config_warning {
         menu.row(Row::separator());
         menu.row(Row::note(format!("config: {warning}")));
@@ -294,7 +294,7 @@ fn gather_flow(term: &mut Term, herdr: &Herdr, config: &Config) -> Result<Option
     }
 
     let default_scope = config.gather.scope();
-    let mut menu = Menu::new("Gather Active Agents")
+    let mut menu = Menu::new("対応が必要な Agent を集約")
         .subtitle(format!(
             "{} · {}",
             config.gather.status_summary(),
@@ -316,7 +316,7 @@ fn gather_flow(term: &mut Term, herdr: &Herdr, config: &Config) -> Result<Option
     }
 
     menu.row(Row::separator());
-    menu.row(Row::header("Scope"));
+    menu.row(Row::header("範囲"));
     for scope in [Scope::CurrentWorkspace, Scope::AllWorkspaces] {
         menu.item(
             Row::item(scope.label())
@@ -486,13 +486,13 @@ fn swap_flow(
     snapshot: &Snapshot,
     config: &Config,
 ) -> Result<Option<Outcome>> {
-    let mut menu = Menu::new("Swap current pane with")
+    let mut menu = Menu::new("現在の Pane と交換する相手")
         .subtitle(source_line(snapshot, config))
         .filterable();
 
     let candidates = snapshot.swap_candidates();
     if candidates.is_empty() {
-        menu.row(Row::note("No other pane in this session."));
+        menu.row(Row::note("このセッションに他の Pane がありません。"));
     }
 
     let mut hotkey = 0usize;
@@ -548,7 +548,7 @@ fn destination_menu(
         .filterable();
 
     if destinations.is_empty() && !offer_new {
-        menu.row(Row::note("No other tab in this session."));
+        menu.row(Row::note("このセッションに他の Tab がありません。"));
     }
 
     let mut current_workspace: Option<String> = None;
@@ -577,9 +577,9 @@ fn destination_menu(
         menu.row(Row::separator());
         // `{query}` is substituted as the user types, so the row reads
         // `+ New Tab "review"` once something has been entered.
-        menu.item_pinned(Row::item("+ New Tab {query}").hotkey("n"), Pick::NewTab);
+        menu.item_pinned(Row::item("+ 新しい Tab {query}").hotkey("n"), Pick::NewTab);
         menu.item_pinned(
-            Row::item("+ New Workspace {query}").hotkey("w"),
+            Row::item("+ 新しい Workspace {query}").hotkey("w"),
             Pick::NewWorkspace,
         );
     }
@@ -599,13 +599,13 @@ fn choose_target_pane(
         bail!("Destination tab no longer exists.");
     };
 
-    let mut menu = Menu::new("Split which pane?")
+    let mut menu = Menu::new("どの Pane を分割しますか？")
         .subtitle(label::tab_display(&tab.tab, tab.position));
 
     menu.item(
-        Row::item("Auto")
+        Row::item("おまかせ")
             .hotkey("a")
-            .secondary("use the tab's focused pane"),
+            .secondary("その Tab のフォーカス中の Pane を使う"),
         None as Option<String>,
     );
     menu.row(Row::separator());
@@ -625,7 +625,7 @@ fn ask_placement(term: &mut Term, config: &Config, context: &str) -> Result<Opti
     let side = match config.default_move_direction.resolve() {
         Some(side) => side,
         None => {
-            let mut menu = Menu::new("Place where?")
+            let mut menu = Menu::new("どこに置きますか？")
                 .subtitle(context.to_string());
             for side in Side::ALL {
                 menu.item(
@@ -641,13 +641,13 @@ fn ask_placement(term: &mut Term, config: &Config, context: &str) -> Result<Opti
     };
 
     let ratio = if config.ask_ratio() {
-        let mut menu = Menu::new("How much space?")
+        let mut menu = Menu::new("どれくらいの大きさに？")
             .subtitle(context.to_string());
         for (index, ratio) in Ratio::ALL.iter().enumerate() {
             menu.item(
                 Row::item(ratio.label())
                     .hotkey((index + 1).to_string())
-                    .secondary("pane already there : pane being placed"),
+                    .secondary("元からある Pane : 置く Pane"),
                 *ratio,
             );
         }
@@ -663,9 +663,9 @@ fn ask_placement(term: &mut Term, config: &Config, context: &str) -> Result<Opti
 }
 
 fn confirm(term: &mut Term, question: &str) -> Result<bool> {
-    let mut menu = Menu::new(question).enter("confirm");
-    menu.item(Row::item("Yes").hotkey("y"), true);
-    menu.item(Row::item("No").hotkey("n"), false);
+    let mut menu = Menu::new(question).enter("実行");
+    menu.item(Row::item("はい").hotkey("y"), true);
+    menu.item(Row::item("いいえ").hotkey("n"), false);
     Ok(menu.run(term)?.unwrap_or(false))
 }
 

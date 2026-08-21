@@ -1,8 +1,8 @@
 id = "layout-tools"
-name = "Layout Tools"
+name = "レイアウト"
 version = "0.1.0"
 min_herdr_version = "0.8.0"
-description = "Arrange the panes inside a tab — equalize, grid, columns, rows, main-left/right/top"
+description = "Tab の中の Pane を並べ直す — 均等・格子・横並び・縦積み・左/右/上を大きく"
 platforms = ["macos", "linux"]
 
 [[build]]
@@ -10,8 +10,8 @@ command = ["cargo", "build", "--release"]
 
 [[panes]]
 id = "layout"
-title = "Layout Tools"
-description = "Rearrange the panes in this tab"
+title = "レイアウト"
+description = "この Tab の Pane を並べ直す"
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-layout-tools" ui']
 placement = "popup"
 width = "50%"
@@ -24,8 +24,8 @@ height = "60%"
 
 [[actions]]
 id = "open"
-title = "Layout Tools"
-description = "Open the Layout Tools menu for this tab"
+title = "レイアウト"
+description = "この Tab のレイアウトメニューを開く"
 contexts = ["pane", "tab", "global"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-layout-tools" launch']
 
@@ -35,57 +35,57 @@ command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-layout-too
 
 [[actions]]
 id = "zoom"
-title = "Zoom / Unzoom Pane"
-description = "Make this pane fill the tab, or give the others their space back"
+title = "Pane の最大化 / 解除"
+description = "この Pane を Tab いっぱいに広げる、または元に戻す"
 contexts = ["pane"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-layout-tools" zoom']
 
 [[actions]]
 id = "equalize"
-title = "Equalize Layout"
-description = "Give every pane in this tab the same share of space"
+title = "レイアウトを均等に"
+description = "この Tab のすべての Pane を同じ大きさにする"
 contexts = ["pane", "tab"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-layout-tools" equalize']
 
 [[actions]]
 id = "grid"
-title = "Layout: Grid"
-description = "Arrange the panes of this tab in a balanced grid"
+title = "レイアウト: 格子"
+description = "この Tab の Pane を格子状に並べる"
 contexts = ["pane", "tab"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-layout-tools" arrange grid']
 
 [[actions]]
 id = "columns"
-title = "Layout: Columns"
-description = "Put every pane of this tab side by side"
+title = "レイアウト: 横並び"
+description = "この Tab の Pane を横一列に並べる"
 contexts = ["pane", "tab"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-layout-tools" arrange columns']
 
 [[actions]]
 id = "rows"
-title = "Layout: Rows"
-description = "Stack every pane of this tab"
+title = "レイアウト: 縦積み"
+description = "この Tab の Pane を縦一列に積む"
 contexts = ["pane", "tab"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-layout-tools" arrange rows']
 
 [[actions]]
 id = "main-left"
-title = "Layout: Main Left"
-description = "Current pane down the left, the rest stacked on the right"
+title = "レイアウト: 左を大きく"
+description = "現在の Pane を左に大きく、残りを右へ積む"
 contexts = ["pane", "tab"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-layout-tools" arrange main-left']
 
 [[actions]]
 id = "main-right"
-title = "Layout: Main Right"
-description = "Current pane down the right, the rest stacked on the left"
+title = "レイアウト: 右を大きく"
+description = "現在の Pane を右に大きく、残りを左へ積む"
 contexts = ["pane", "tab"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-layout-tools" arrange main-right']
 
 [[actions]]
 id = "main-top"
-title = "Layout: Main Top"
-description = "Current pane across the top, the rest in a row below"
+title = "レイアウト: 上を大きく"
+description = "現在の Pane を上に大きく、残りを下へ並べる"
 contexts = ["pane", "tab"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-layout-tools" arrange main-top']
 
@@ -94,14 +94,14 @@ command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-layout-too
 
 [[actions]]
 id = "save-layout"
-title = "Save This Layout..."
-description = "Remember this tab's shape under a name"
+title = "この配置を保存..."
+description = "この Tab の形に名前を付けて覚える"
 contexts = ["tab", "pane"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-layout-tools" launch']
 
 [[actions]]
 id = "layouts"
-title = "Saved Layouts"
-description = "Apply, save or delete a saved layout"
+title = "保存済みレイアウト"
+description = "保存済みレイアウトの適用・保存・削除"
 contexts = ["global", "tab", "pane"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-layout-tools" launch']

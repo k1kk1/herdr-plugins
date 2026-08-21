@@ -31,10 +31,10 @@ impl Scope {
 
     fn title(self) -> &'static str {
         match self {
-            Scope::Panes => "Go to pane",
-            Scope::Agents => "Go to agent",
-            Scope::Tabs => "Go to tab",
-            Scope::Workspaces => "Go to workspace",
+            Scope::Panes => "Pane へ移動",
+            Scope::Agents => "Agent へ移動",
+            Scope::Tabs => "Tab へ移動",
+            Scope::Workspaces => "Workspace へ移動",
         }
     }
 
@@ -120,8 +120,8 @@ fn pick(
 
 fn build(herdr: &Herdr, scope: Scope, current: Option<&Pane>) -> Result<Menu<String>> {
     let mut menu = Menu::new(scope.title())
-        .enter("jump")
-        .tab("scope")
+        .enter("移動")
+        .tab("対象")
         .filterable()
         .numbered();
 
@@ -136,7 +136,7 @@ fn build(herdr: &Herdr, scope: Scope, current: Option<&Pane>) -> Result<Menu<Str
                     kit_ui::status_color(workspace.agent_status),
                 );
                 if workspace.focused {
-                    row = row.secondary("current");
+                    row = row.secondary("現在地");
                 }
                 menu.item(row, workspace.workspace_id.clone());
             }
@@ -184,7 +184,7 @@ fn build(herdr: &Herdr, scope: Scope, current: Option<&Pane>) -> Result<Menu<Str
                     for pane in in_tab {
                         let mut row = kit_ui::pane_row(pane, true, true);
                         if current.is_some_and(|c| c.pane_id == pane.pane_id) {
-                            row = row.secondary("current");
+                            row = row.secondary("現在地");
                         }
                         menu.item_matching(
                             row,
@@ -200,8 +200,8 @@ fn build(herdr: &Herdr, scope: Scope, current: Option<&Pane>) -> Result<Menu<Str
 
     if menu.is_empty() {
         menu.row(Row::note(match scope {
-            Scope::Agents => "No agent is running in any pane.",
-            _ => "Nothing to show.",
+            Scope::Agents => "Agent が動いている Pane はありません。",
+            _ => "表示するものがありません。",
         }));
     }
 

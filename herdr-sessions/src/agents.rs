@@ -206,7 +206,7 @@ impl AgentSession {
             parts.push(branch.clone());
         }
         if parts.is_empty() {
-            parts.push("unknown directory".into());
+            parts.push("場所不明".into());
         }
         parts.join(" · ")
     }

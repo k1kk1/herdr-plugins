@@ -1,8 +1,8 @@
 id = "navigator"
-name = "Navigator"
+name = "検索して移動"
 version = "0.1.0"
 min_herdr_version = "0.8.0"
-description = "Find and jump to any pane, tab or workspace by typing part of its name"
+description = "名前の一部を打って Pane / Tab / Workspace へ移動する"
 platforms = ["macos", "linux"]
 
 [[build]]
@@ -10,8 +10,8 @@ command = ["cargo", "build", "--release"]
 
 [[panes]]
 id = "navigator"
-title = "Navigator"
-description = "Jump to a pane, tab or workspace"
+title = "検索して移動"
+description = "Pane / Tab / Workspace へ移動"
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-navigator" ui']
 placement = "popup"
 width = "70%"
@@ -19,28 +19,28 @@ height = "70%"
 
 [[actions]]
 id = "open"
-title = "Go to Pane..."
-description = "Search every pane in the session and jump to one"
+title = "Pane へ移動..."
+description = "セッション内のすべての Pane から探して移動"
 contexts = ["global", "pane"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-navigator" launch panes']
 
 [[actions]]
 id = "agents"
-title = "Go to Agent..."
-description = "Search the panes running an agent and jump to one"
+title = "Agent へ移動..."
+description = "Agent が動いている Pane から探して移動"
 contexts = ["global", "pane"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-navigator" launch agents']
 
 [[actions]]
 id = "tabs"
-title = "Go to Tab..."
-description = "Search every tab in the session and jump to one"
+title = "Tab へ移動..."
+description = "セッション内のすべての Tab から探して移動"
 contexts = ["global", "tab"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-navigator" launch tabs']
 
 [[actions]]
 id = "workspaces"
-title = "Go to Workspace..."
-description = "Search every workspace and jump to one"
+title = "Workspace へ移動..."
+description = "すべての Workspace から探して移動"
 contexts = ["global", "workspace"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-navigator" launch workspaces']

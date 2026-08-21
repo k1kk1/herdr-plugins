@@ -1,8 +1,8 @@
 id = "command-palette"
-name = "Command Palette"
+name = "コマンドパレット"
 version = "0.1.0"
 min_herdr_version = "0.8.0"
-description = "Run any installed plugin's action from one searchable list"
+description = "導入済みプラグインの Action を1つの一覧から検索して実行する"
 platforms = ["macos", "linux"]
 
 [[build]]
@@ -10,8 +10,8 @@ command = ["cargo", "build", "--release"]
 
 [[panes]]
 id = "palette"
-title = "Command Palette"
-description = "Search and run any plugin action"
+title = "コマンドパレット"
+description = "プラグインの Action を検索して実行"
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-command-palette" ui']
 placement = "popup"
 width = "70%"
@@ -19,7 +19,7 @@ height = "70%"
 
 [[actions]]
 id = "open"
-title = "Command Palette"
-description = "Search and run any installed plugin's action"
+title = "コマンドパレット"
+description = "導入済みプラグインの Action を検索して実行"
 contexts = ["global", "pane", "tab"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-command-palette" launch']

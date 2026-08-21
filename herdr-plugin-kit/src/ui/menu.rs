@@ -59,7 +59,7 @@ impl<T: Clone> Menu<T> {
             pinned: Vec::new(),
             filter: None,
             numbered: false,
-            enter: "select",
+            enter: "決定",
             prompt: None,
             tab: None,
             accept_also: Vec::new(),
@@ -96,7 +96,7 @@ impl<T: Clone> Menu<T> {
         self
     }
 
-    /// The verb for Enter: `open`, `jump`, `run`. One word, imperative.
+    /// The verb for Enter: 開く, 移動, 実行. One word, imperative.
     pub fn enter(mut self, verb: &'static str) -> Self {
         self.enter = verb;
         self
@@ -126,21 +126,21 @@ impl<T: Clone> Menu<T> {
     fn key_line(&self) -> String {
         let mut parts = Vec::new();
         if self.filter.is_some() {
-            parts.push(self.prompt.unwrap_or("type to filter").to_string());
+            parts.push(self.prompt.unwrap_or("入力で絞り込み").to_string());
         }
         if self.numbered {
-            parts.push("1-9 pick".to_string());
+            parts.push("1-9 選択".to_string());
         }
-        parts.push("↑↓ move".to_string());
+        parts.push("↑↓ 移動".to_string());
         parts.push(format!("Enter {}", self.enter));
         if let Some(what) = self.tab {
             parts.push(format!("Tab {what}"));
         }
         // `q` quits only when it is not being typed into a filter.
         parts.push(if self.filter.is_some() {
-            "Esc cancel".to_string()
+            "Esc 中止".to_string()
         } else {
-            "q / Esc cancel".to_string()
+            "q / Esc 中止".to_string()
         });
         parts.join(" · ")
     }
@@ -479,13 +479,17 @@ mod key_line_tests {
 
     #[test]
     fn the_key_line_lists_only_what_the_menu_does() {
-        let plain = menu().key_line();
-        assert_eq!(plain, "↑↓ move · Enter select · q / Esc cancel");
+        assert_eq!(menu().key_line(), "↑↓ 移動 · Enter 決定 · q / Esc 中止");
 
-        let full = menu().filterable().numbered().enter("open").tab("mode").key_line();
+        let full = menu()
+            .filterable()
+            .numbered()
+            .enter("開く")
+            .tab("一覧")
+            .key_line();
         assert_eq!(
             full,
-            "type to filter · 1-9 pick · ↑↓ move · Enter open · Tab mode · Esc cancel"
+            "入力で絞り込み · 1-9 選択 · ↑↓ 移動 · Enter 開く · Tab 一覧 · Esc 中止"
         );
     }
 
@@ -497,9 +501,9 @@ mod key_line_tests {
 
     #[test]
     fn the_pieces_always_come_in_the_same_order() {
-        let line = menu().filterable().numbered().tab("scope").key_line();
+        let line = menu().filterable().numbered().tab("範囲").key_line();
         let at = |needle: &str| line.find(needle).expect(needle);
-        assert!(at("type to filter") < at("1-9"));
+        assert!(at("入力で絞り込み") < at("1-9"));
         assert!(at("1-9") < at("↑↓"));
         assert!(at("↑↓") < at("Enter"));
         assert!(at("Enter") < at("Tab"));

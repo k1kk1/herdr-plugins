@@ -27,25 +27,42 @@ pub enum Arrangement {
 }
 
 impl Arrangement {
+    /// The name on the command line and in the manifest.
+    ///
+    /// Separate from [`Arrangement::title`], which is what a reader sees.
+    /// They used to be the same string, and translating the display name
+    /// silently broke `arrange grid` — the round-trip test caught it.
+    pub fn cli_name(self) -> &'static str {
+        match self {
+            Arrangement::Columns => "columns",
+            Arrangement::Rows => "rows",
+            Arrangement::Grid => "grid",
+            Arrangement::MainLeft => "main-left",
+            Arrangement::MainRight => "main-right",
+            Arrangement::MainTop => "main-top",
+        }
+    }
+
+    /// The name shown to the reader.
     pub fn title(self) -> &'static str {
         match self {
-            Arrangement::Columns => "Columns",
-            Arrangement::Rows => "Rows",
-            Arrangement::Grid => "Grid",
-            Arrangement::MainLeft => "Main Left",
-            Arrangement::MainRight => "Main Right",
-            Arrangement::MainTop => "Main Top",
+            Arrangement::Columns => "横並び",
+            Arrangement::Rows => "縦積み",
+            Arrangement::Grid => "格子",
+            Arrangement::MainLeft => "左を大きく",
+            Arrangement::MainRight => "右を大きく",
+            Arrangement::MainTop => "上を大きく",
         }
     }
 
     pub fn description(self) -> &'static str {
         match self {
-            Arrangement::Columns => "every pane side by side",
-            Arrangement::Rows => "every pane stacked",
-            Arrangement::Grid => "a balanced grid",
-            Arrangement::MainLeft => "current pane left, the rest stacked right",
-            Arrangement::MainRight => "current pane right, the rest stacked left",
-            Arrangement::MainTop => "current pane on top, the rest in a row below",
+            Arrangement::Columns => "すべての Pane を横一列に",
+            Arrangement::Rows => "すべての Pane を縦一列に",
+            Arrangement::Grid => "だいたい正方形の格子に",
+            Arrangement::MainLeft => "現在の Pane を左、残りを右へ積む",
+            Arrangement::MainRight => "現在の Pane を右、残りを左へ積む",
+            Arrangement::MainTop => "現在の Pane を上、残りを下へ並べる",
         }
     }
 

@@ -55,7 +55,7 @@ fn menu(
     let panes = layout.root.pane_ids();
     let current = Shape::from_layout(&layout.root);
 
-    let mut menu = Menu::new("Layout Tools")
+    let mut menu = Menu::new("レイアウト")
         .subtitle(format!(
             "{} · {} pane{}",
             tab.label.as_deref().unwrap_or("this tab"),
@@ -64,20 +64,20 @@ fn menu(
         ));
 
     menu.item(
-        Row::item("Equalize")
+        Row::item("均等")
             .hotkey("e")
-            .secondary("give every pane the same space"),
+            .secondary("すべての Pane を同じ大きさに"),
         Choice::Equalize,
     );
     menu.item(
-        Row::item("Zoom current pane")
+        Row::item("現在の Pane を最大化")
             .hotkey("z")
             .secondary(label::pane_compact(source)),
         Choice::Zoom,
     );
 
     menu.row(Row::separator());
-    menu.row(Row::header("Arrange"));
+    menu.row(Row::header("並べ方"));
     for arrangement in Arrangement::ALL {
         // Mark the arrangement the tab is already in, so the menu doubles as
         // a read-out of the current layout.
@@ -102,7 +102,7 @@ fn menu(
     let saved = template::load();
     if !saved.is_empty() {
         menu.row(Row::separator());
-        menu.row(Row::header("Saved"));
+        menu.row(Row::header("保存済み"));
         for (name, layout) in &saved {
             // A layout only fits a tab with the same number of panes, so say
             // so up front rather than failing after the user picks it.
@@ -120,20 +120,20 @@ fn menu(
 
     menu.row(Row::separator());
     menu.item(
-        Row::item("Save this layout")
+        Row::item("この配置を保存")
             .hotkey("s")
-            .secondary("remember the current shape under a name"),
+            .secondary("今の形に名前を付けて覚える"),
         Choice::Save,
     );
     if !saved.is_empty() {
         menu.item(
-            Row::item("Delete a saved layout").hotkey("d"),
+            Row::item("保存済み配置を削除").hotkey("d"),
             Choice::Forget,
         );
     }
 
     menu.row(Row::separator());
-    menu.item(Row::item("Cancel").hotkey("q"), Choice::Cancel);
+    menu.item(Row::item("やめる").hotkey("q"), Choice::Cancel);
 
     let Some(choice) = menu.run(term)? else {
         return Ok(None);
@@ -165,16 +165,16 @@ fn menu(
 /// becomes the name, the same way Pane Manager names a new tab.
 fn ask_name(term: &mut Term) -> Result<Option<String>> {
     let existing = template::load();
-    let mut menu: Menu<String> = Menu::new("Save this layout as")
-        .subtitle("type a name, then Enter")
-        .prompt("type a name")
-        .enter("save")
+    let mut menu: Menu<String> = Menu::new("この配置に名前を付けて保存")
+        
+        .prompt("名前を入力")
+        .enter("保存")
         .filterable();
 
-    menu.item_pinned(Row::item("Save as {query}").hotkey("↵"), String::new());
+    menu.item_pinned(Row::item("{query} として保存").hotkey("↵"), String::new());
     if !existing.is_empty() {
         menu.row(Row::separator());
-        menu.row(Row::header("Replace an existing one"));
+        menu.row(Row::header("既存を置き換える"));
         for (name, layout) in &existing {
             menu.item(
                 Row::item(name.clone()).secondary(layout.describe()),
@@ -198,7 +198,7 @@ fn ask_name(term: &mut Term) -> Result<Option<String>> {
 /// Choose a saved layout to delete.
 fn pick_saved(term: &mut Term) -> Result<Option<String>> {
     let saved = template::load();
-    let mut menu: Menu<String> = Menu::new("Delete which saved layout?")
+    let mut menu: Menu<String> = Menu::new("どの保存済み配置を削除しますか？")
         .numbered();
     for (name, layout) in &saved {
         menu.item(

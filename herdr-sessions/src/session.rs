@@ -62,9 +62,9 @@ impl Session {
 
     pub fn state(&self) -> &'static str {
         if self.running {
-            "running"
+            "起動中"
         } else {
-            "stopped"
+            "停止中"
         }
     }
 }
@@ -180,13 +180,13 @@ impl Detail {
         if let Some(problem) = &self.problem {
             return problem.clone();
         }
-        let mut parts = vec![plural(self.workspaces, "workspace")];
-        parts.push(plural(self.panes, "pane"));
+        let mut parts = vec![format!("Workspace {}", self.workspaces)];
+        parts.push(format!("Pane {}", self.panes));
         if self.agents > 0 {
             parts.push(if self.busy > 0 {
-                format!("{} agents, {} busy", self.agents, self.busy)
+                format!("Agent {}（{} が作業中）", self.agents, self.busy)
             } else {
-                plural(self.agents, "agent")
+                format!("Agent {}", self.agents)
             });
         }
         parts.join(" · ")
@@ -204,10 +204,6 @@ impl Detail {
         }
         Some(line)
     }
-}
-
-fn plural(n: usize, noun: &str) -> String {
-    format!("{n} {noun}{}", if n == 1 { "" } else { "s" })
 }
 
 /// Summarise a session: live over its socket if it is running, off its
@@ -350,17 +346,17 @@ fn last_used(dir: &Path) -> Option<SystemTime> {
 /// `3 days ago`, for a stopped session's row.
 pub fn ago(time: SystemTime) -> String {
     let Ok(elapsed) = time.elapsed() else {
-        return "just now".into();
+        return "たった今".into();
     };
     let seconds = elapsed.as_secs();
     let (n, unit) = match seconds {
-        0..=59 => return "just now".into(),
-        60..=3599 => (seconds / 60, "minute"),
-        3600..=86_399 => (seconds / 3600, "hour"),
-        86_400..=2_591_999 => (seconds / 86_400, "day"),
-        _ => (seconds / 2_592_000, "month"),
+        0..=59 => return "たった今".into(),
+        60..=3599 => (seconds / 60, "分"),
+        3600..=86_399 => (seconds / 3600, "時間"),
+        86_400..=2_591_999 => (seconds / 86_400, "日"),
+        _ => (seconds / 2_592_000, "か月"),
     };
-    format!("{n} {unit}{} ago", if n == 1 { "" } else { "s" })
+    format!("{n} {unit}前")
 }
 
 #[cfg(test)]
@@ -417,7 +413,7 @@ mod tests {
             busy: 1,
             ..Default::default()
         };
-        assert_eq!(detail.summary(), "3 workspaces · 1 pane · 2 agents, 1 busy");
+        assert_eq!(detail.summary(), "Workspace 3 · Pane 1 · Agent 2（1 が作業中）");
     }
 
     #[test]
@@ -438,7 +434,7 @@ mod tests {
             panes: 2,
             ..Default::default()
         };
-        assert_eq!(detail.summary(), "1 workspace · 2 panes");
+        assert_eq!(detail.summary(), "Workspace 1 · Pane 2");
     }
 
     #[test]
@@ -461,9 +457,9 @@ mod tests {
     #[test]
     fn elapsed_time_reads_as_a_phrase() {
         let now = SystemTime::now();
-        assert_eq!(ago(now), "just now");
-        assert_eq!(ago(now - Duration::from_secs(60 * 5)), "5 minutes ago");
-        assert_eq!(ago(now - Duration::from_secs(3600)), "1 hour ago");
-        assert_eq!(ago(now - Duration::from_secs(86_400 * 3)), "3 days ago");
+        assert_eq!(ago(now), "たった今");
+        assert_eq!(ago(now - Duration::from_secs(60 * 5)), "5 分前");
+        assert_eq!(ago(now - Duration::from_secs(3600)), "1 時間前");
+        assert_eq!(ago(now - Duration::from_secs(86_400 * 3)), "3 日前");
     }
 }
