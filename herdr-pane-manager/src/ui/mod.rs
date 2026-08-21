@@ -113,10 +113,28 @@ fn dispatch(
 ) -> Result<Option<Outcome>> {
     match entry {
         Entry::Manager => manager(term, herdr, snapshot, config, config_warning),
-        Entry::Move => move_flow(term, herdr, snapshot, config, false),
+        Entry::Move => {
+            move_flow(term, herdr, snapshot, config, config.default_action.detailed(false))
+        }
         Entry::Swap => swap_flow(term, herdr, snapshot, config),
         Entry::Merge => merge_flow(term, herdr, snapshot, config),
     }
+}
+
+/// The key line, worded for whichever way round the settings have it.
+fn manager_footer(term: &Term, config: &Config) -> String {
+    let (plain, shifted) = match config.default_action {
+        crate::config::DefaultAction::Quick => ("すぐ移動", "位置を指定"),
+        crate::config::DefaultAction::Detailed => ("位置を指定", "すぐ移動"),
+    };
+    // Shift+letter needs no keyboard protocol; Shift+Enter does. Only promise
+    // the one that will actually arrive.
+    let shift_key = if term.distinguishes_modified_enter() {
+        "Shift+Enter / Shift+英字"
+    } else {
+        "Shift+英字"
+    };
+    format!("1-9・英字・Enter {plain}  ·  {shift_key} {shifted}  ·  Esc 閉じる")
 }
 
 /// The overlay (spec §9.2, addendum §1).
@@ -129,6 +147,10 @@ fn manager(
 ) -> Result<Option<Outcome>> {
     let mut menu = Menu::new("Pane Manager")
         .subtitle(source_line(snapshot, config))
+        // The keys live here rather than beside the rows they apply to: a hint
+        // repeated on every section is clutter, and one at the bottom is where
+        // a reader looks for keys anyway.
+        .footer(manager_footer(term, config))
         // Quick rows take Shift+Enter as "the same tab, but ask me where".
         .accept_also(&[Key::ShiftEnter])
         .no_preview("この操作は Pane の配置を変えません");
@@ -150,11 +172,7 @@ fn manager(
         .collect();
 
     if !quick.is_empty() {
-        menu.row(Row::header(if term.distinguishes_modified_enter() {
-            "Quick move current pane to  ·  Shift+Enter で位置を指定"
-        } else {
-            "Quick move current pane to"
-        }));
+        menu.row(Row::header("Quick move current pane to"));
         for (position, name, contents, diagram) in quick {
             menu.item(
                 Row::item(name)
@@ -170,7 +188,7 @@ fn manager(
     menu.item(
         Row::item("Move to…")
             .hotkey("m")
-            .secondary("この Pane を別の Tab へ移す  ·  Shift+M で位置も指定")
+            .secondary("この Pane を別の Tab へ移す")
             .preview_of(source_preview(snapshot, false)),
         Choice::Move,
     );
@@ -241,7 +259,9 @@ fn manager(
     // tab and stops to ask, on `Move to…` it carries the same intent into the
     // flow so the placement step appears without asking for Shift twice.
     // The plain key stays the fast path it has always been.
-    let detailed = menu.accepted_with() == Key::ShiftEnter;
+    let detailed = config
+        .default_action
+        .detailed(menu.accepted_with() == Key::ShiftEnter);
     let choice = match (choice, detailed) {
         (Choice::QuickMove(position), true) => Choice::DetailedMove(position),
         (choice, _) => choice,
@@ -434,8 +454,9 @@ fn detailed_move_into(
     )
 }
 
-/// `forced_detail` carries a Shift held in the menu that opened this one, so
-/// the placement step appears without the reader having to hold it again.
+/// `forced_detail` is the starting intent: what the menu that opened this one
+/// had already settled on, so the placement step appears without the reader
+/// having to hold Shift twice. A Shift held here flips it back.
 fn move_flow(
     term: &mut Term,
     herdr: &Herdr,
@@ -466,7 +487,11 @@ fn move_flow(
         Some(config.default_move_direction.resolve().unwrap_or(Side::Right)),
     );
     let picked = menu.run(term)?;
-    let detailed = forced_detail || menu.accepted_with() == Key::ShiftEnter;
+    // `forced_detail` is the intent carried in from the menu that opened this
+    // one; Shift here means "the other one" just as it does everywhere else.
+    // Exclusive-or rather than or, so a Shift held now can still take the
+    // decision back.
+    let detailed = forced_detail != (menu.accepted_with() == Key::ShiftEnter);
     // Whatever was typed becomes the name of a newly created tab or
     // workspace (addendum §5).
     let query = menu.query().trim().to_string();

@@ -79,3 +79,14 @@ agents = []
 # Name of the tabs Gather creates. When one tab is enough it is used as
 # written; when more are needed they are numbered "Active Agents 1", "2", ...
 tab_label = "Active Agents"
+
+# 修飾キーなしで行を選んだときの動作。
+#
+#   quick     既定の向き・比率ですぐ移動する
+#   detailed  どこに置くかを尋ねる
+#
+# **Shift は常に「もう一方」**を意味します。どちらに設定しても両方が
+# 1キーで届くので、いつも位置を指定する人が毎回 Shift を押さずに済みます。
+#
+# 対象は Enter・数字キー・英字キーのすべてです。
+# default_action = "quick"

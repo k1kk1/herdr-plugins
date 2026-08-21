@@ -81,8 +81,35 @@ pub struct Config {
     pub confirm_merge: bool,
     /// Reveal `w1:p3`-style IDs in pickers (spec §3.2 — Debug only).
     pub show_ids: bool,
+    /// What choosing a row does when no modifier is held.
+    pub default_action: DefaultAction,
     /// Active Agent Gather (addendum §2, §4, §7, §15, §16).
     pub gather: GatherConfig,
+}
+
+/// Which of the two outcomes an unmodified Enter (or hotkey) gives.
+///
+/// Shift always gives *the other one*, so both stay one keystroke away
+/// whichever is set. Someone who nearly always wants to say where the pane
+/// lands should not have to hold Shift every time to get it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DefaultAction {
+    /// Move straight away, using the configured direction and ratio.
+    #[default]
+    Quick,
+    /// Stop and ask where the pane should land.
+    Detailed,
+}
+
+impl DefaultAction {
+    /// Whether the placement step should run, given whether Shift was held.
+    ///
+    /// Exclusive-or: the setting says what the plain key does, and Shift means
+    /// "not that".
+    pub fn detailed(self, shift_held: bool) -> bool {
+        (self == DefaultAction::Detailed) != shift_held
+    }
 }
 
 /// `[pane-manager.gather]`.
@@ -152,6 +179,7 @@ impl Default for Config {
             show_terminal_title: true,
             confirm_merge: false,
             show_ids: false,
+            default_action: DefaultAction::default(),
             gather: GatherConfig::default(),
         }
     }
@@ -344,5 +372,25 @@ mod tests {
             terminal_title: None,
             terminal_title_stripped: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod default_action_tests {
+    use super::DefaultAction;
+
+    #[test]
+    fn shift_always_gives_the_other_outcome() {
+        // Whichever way round the setting is, both outcomes stay one
+        // keystroke away — that is the point of making it configurable.
+        assert!(!DefaultAction::Quick.detailed(false));
+        assert!(DefaultAction::Quick.detailed(true));
+        assert!(DefaultAction::Detailed.detailed(false));
+        assert!(!DefaultAction::Detailed.detailed(true));
+    }
+
+    #[test]
+    fn quick_is_the_default_so_nobody_gains_a_prompt_they_did_not_ask_for() {
+        assert_eq!(DefaultAction::default(), DefaultAction::Quick);
     }
 }
