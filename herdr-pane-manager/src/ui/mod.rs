@@ -138,19 +138,20 @@ fn manager(
             (
                 t.position,
                 label::tab_display(&t.tab, t.position),
-                t.tab.pane_count,
+                tab_shape(t),
+                tab_contents(t),
             )
         })
         .collect();
 
     if !quick.is_empty() {
         menu.row(Row::header("Quick move current pane to"));
-        for (position, name, pane_count) in quick {
-            let panes = if pane_count == 1 { "pane" } else { "panes" };
+        for (position, name, shape, contents) in quick {
             menu.item(
                 Row::item(name)
                     .hotkey(position.to_string())
-                    .secondary(format!("{pane_count} {panes}")),
+                    .secondary(shape)
+                    .detail(Some(contents)),
                 Choice::QuickMove(position),
             );
         }
@@ -536,6 +537,38 @@ fn swap_flow(
     )
 }
 
+/// How a destination tab is arranged, as a sketch.
+///
+/// Falls back to a count when Herdr could not report the split tree, which is
+/// rare but not worth failing a whole menu over.
+fn tab_shape(tab: &TabEntry) -> String {
+    match &tab.shape {
+        Some(shape) => shape.sketch(),
+        // A one-pane tab never has its layout fetched — there is nothing to
+        // ask about — so the single box is drawn straight from the count.
+        None if tab.tab.pane_count <= 1 => "▫".into(),
+        None => format!("{} panes", tab.tab.pane_count),
+    }
+}
+
+/// What is running in a destination tab.
+///
+/// The shape says how the tab is divided; this says what is in it, which is
+/// the other half of "is this the tab I mean?".
+fn tab_contents(tab: &TabEntry) -> String {
+    let names: Vec<String> = tab
+        .panes
+        .iter()
+        .take(4)
+        .map(|pane| label::pane_compact(pane))
+        .collect();
+    let mut line = names.join(" · ");
+    if tab.panes.len() > names.len() {
+        line.push_str(&format!(" +{}", tab.panes.len() - names.len()));
+    }
+    line
+}
+
 /// A filterable list of tabs, grouped by workspace, optionally offering the
 /// two "create it now" entries (addendum §4, §5).
 fn destination_menu(
@@ -564,9 +597,9 @@ fn destination_menu(
             current_workspace = Some(workspace.workspace_id.clone());
         }
 
-        let panes = if tab.tab.pane_count == 1 { "pane" } else { "panes" };
         let mut row = Row::item(label::tab_display(&tab.tab, tab.position))
-            .secondary(format!("{} {panes}", tab.tab.pane_count));
+            .secondary(tab_shape(tab))
+            .detail(Some(tab_contents(tab)));
         // Quick-pick numbers only make sense inside the current workspace,
         // where they match the tab numbers the user already knows.
         if workspace.workspace_id == snapshot.workspace.workspace_id && tab.position <= 9 {
