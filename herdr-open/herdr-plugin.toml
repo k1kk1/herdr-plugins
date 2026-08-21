@@ -1,0 +1,62 @@
+id = "open"
+name = "Open"
+version = "0.1.0"
+min_herdr_version = "0.8.0"
+description = "Open the current pane's working directory in Finder, an editor, or anything else you configure"
+platforms = ["macos", "linux"]
+
+[[build]]
+command = ["cargo", "build", "--release"]
+
+[[panes]]
+id = "open"
+title = "Open"
+description = "Open this pane's directory outside the terminal"
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-open" ui']
+placement = "popup"
+width = "50%"
+height = "40%"
+
+# ---------------------------------------------------------------------------
+# Actions. `open` raises the picker; the rest run headless and immediately,
+# so the pane context menu can go straight to the common answer.
+#
+# The direct actions name a target id. Replacing `[[target]]` in the plugin
+# config removes the built-ins, and an action naming one that is gone says so
+# in `herdr plugin log` rather than failing silently.
+# ---------------------------------------------------------------------------
+
+[[actions]]
+id = "open"
+title = "Open Directory..."
+description = "Open this pane's working directory in Finder, an editor, or the clipboard"
+contexts = ["pane", "global"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-open" launch']
+
+[[actions]]
+id = "finder"
+title = "Reveal in Finder"
+description = "Show this pane's working directory in the file manager"
+contexts = ["pane"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-open" open finder']
+
+[[actions]]
+id = "editor"
+title = "Open in Editor"
+description = "Open this pane's working directory in the configured editor"
+contexts = ["pane"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-open" open editor']
+
+[[actions]]
+id = "editor-repo"
+title = "Open Repository in Editor"
+description = "Open the git root of this pane's working directory in the configured editor"
+contexts = ["pane", "global"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-open" open editor --git-root']
+
+[[actions]]
+id = "copy-path"
+title = "Copy Directory Path"
+description = "Put this pane's working directory on the clipboard"
+contexts = ["pane", "global"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-open" open copy-path']

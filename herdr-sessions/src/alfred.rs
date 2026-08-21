@@ -296,9 +296,17 @@ fn info_plist() -> Result<String> {
     //
     // Single-quoted: the value is `<placement>:<uuid>`, so there is nothing in
     // it for a shell to do, and nothing it could do if there were.
+    // How an action receives the chosen item's argument.
+    //
+    // As `$1`, with `scriptargtype = 1`. That number is the whole story and it
+    // reads backwards: **1 is "input as argv", 0 is not**. With 0 the script
+    // ran as `/bin/bash` with no positional parameters at all and the item
+    // silently did nothing; `{{query}}` substitution does not happen either
+    // way. Measured both, because guessing cost two rounds of "it still does
+    // not work".
     let action = |verb: &str| {
         xml(&format!(
-            "export HERDR_BIN_PATH={herdr:?}\nexec {me:?} {verb} '{{query}}'\n"
+            "export HERDR_BIN_PATH={herdr:?}\nexec {me:?} {verb} \"$1\"\n"
         ))
     };
     // One connection per accepted modifier. The item's `mods` decide what

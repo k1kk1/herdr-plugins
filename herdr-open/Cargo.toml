@@ -1,0 +1,21 @@
+[package]
+name = "herdr-open"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[[bin]]
+name = "herdr-open"
+path = "src/main.rs"
+
+[dependencies]
+herdr-plugin-kit = { path = "../herdr-plugin-kit" }
+anyhow = "1"
+crossterm = "0.29"
+serde = { version = "1", features = ["derive"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true
+panic = "abort"
