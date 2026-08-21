@@ -145,7 +145,7 @@ fn manager(
                 label::tab_display(&t.tab, t.position),
                 tab_shape(t),
                 tab_contents(t),
-                tab_diagram(t, Some(config.default_move_direction.resolve().unwrap_or(Side::Right))),
+                tab_preview(t, Some(config.default_move_direction.resolve().unwrap_or(Side::Right))),
             )
         })
         .collect();
@@ -162,7 +162,7 @@ fn manager(
                     .hotkey(position.to_string())
                     .secondary(shape)
                     .detail(Some(contents))
-                    .extra(diagram),
+                    .preview_of(diagram),
                 Choice::QuickMove(position),
             );
         }
@@ -173,28 +173,28 @@ fn manager(
         Row::item("Move to…")
             .hotkey("m")
             .secondary("この Pane を別の Tab へ移す")
-            .extra(source_preview(snapshot, false)),
+            .preview_of(source_preview(snapshot, false)),
         Choice::Move,
     );
     menu.item(
         Row::item("Swap with…")
             .hotkey("s")
             .secondary("別の Pane と入れ替える")
-            .extra(source_preview(snapshot, false)),
+            .preview_of(source_preview(snapshot, false)),
         Choice::Swap,
     );
     menu.item(
         Row::item("Extract…")
             .hotkey("e")
             .secondary("独立した Tab へ切り出す")
-            .extra(source_preview(snapshot, false)),
+            .preview_of(source_preview(snapshot, false)),
         Choice::Extract,
     );
     menu.item(
         Row::item("Fold into…")
             .hotkey("f")
             .secondary("この Tab を別の Tab へ畳む")
-            .extra(source_preview(snapshot, true)),
+            .preview_of(source_preview(snapshot, true)),
         Choice::Merge,
     );
 
@@ -657,50 +657,43 @@ fn tab_shape(tab: &TabEntry) -> String {
     }
 }
 
-/// The destination tab drawn as a box, for the row under the cursor.
-///
-/// When `arriving` is set, the box shows the tab **after** the move, with the
-/// incoming pane shaded. The side is already decided by then — it comes from
-/// the settings, not from a later question — so there is nothing speculative
-/// about it: this is where the pane is going.
-fn tab_diagram(tab: &TabEntry, arriving: Option<Side>) -> Vec<String> {
-    let anchor = tab.panes.first().map(|p| p.pane_id.as_str());
-    let mut shape = match (&tab.shape, anchor) {
-        (Some(shape), _) => shape.clone(),
-        // A one-pane tab has no stored shape; the trivial one is still worth
-        // drawing, and is the commonest destination there is.
-        (None, Some(anchor)) => Shape::pane(anchor),
-        (None, None) => return Vec::new(),
-    };
-
-    match (arriving, anchor) {
-        (Some(side), Some(anchor)) => {
-            shape.split(anchor, ARRIVING, side);
-            shape.diagram_with(DIAGRAM.0, DIAGRAM.1, Some(ARRIVING))
-        }
-        _ => shape.diagram(DIAGRAM.0, DIAGRAM.1),
-    }
-}
-
-/// The current tab, with whatever an action would take from it shaded.
+/// The current tab, with whatever an action would take from it marked.
 ///
 /// Move, Swap and Fold all ask for a destination afterwards, so a picture of
-/// the result would be a guess. What *is* settled at this point is which
-/// panes are leaving, and that is the half worth drawing.
-fn source_preview(snapshot: &Snapshot, whole_tab: bool) -> Vec<String> {
-    let Some(tab) = snapshot.source_tab() else {
-        return Vec::new();
-    };
+/// the result would be a guess. What *is* settled at this point is which panes
+/// are leaving, and that is the half worth drawing.
+fn source_preview(snapshot: &Snapshot, whole_tab: bool) -> Option<(Shape, Vec<String>)> {
+    let tab = snapshot.source_tab()?;
     let shape = match &tab.shape {
         Some(shape) => shape.clone(),
         None => Shape::pane(&snapshot.source.pane_id),
     };
-    let taken: Vec<&str> = if whole_tab {
-        tab.panes.iter().map(|p| p.pane_id.as_str()).collect()
+    let taken = if whole_tab {
+        tab.panes.iter().map(|p| p.pane_id.clone()).collect()
     } else {
-        vec![snapshot.source.pane_id.as_str()]
+        vec![snapshot.source.pane_id.clone()]
     };
-    shape.diagram_marking(DIAGRAM.0, DIAGRAM.1, &taken)
+    Some((shape, taken))
+}
+
+/// The destination tab, and the pane that would arrive in it.
+///
+/// When `arriving` is set the shape is the tab **after** the move. The side is
+/// already decided by then — it comes from the settings, not from a later
+/// question — so there is nothing speculative about it.
+fn tab_preview(tab: &TabEntry, arriving: Option<Side>) -> Option<(Shape, Vec<String>)> {
+    let anchor = tab.panes.first().map(|p| p.pane_id.clone())?;
+    let mut shape = match &tab.shape {
+        Some(shape) => shape.clone(),
+        None => Shape::pane(&anchor),
+    };
+    match arriving {
+        Some(side) => {
+            shape.split(&anchor, ARRIVING, side);
+            Some((shape, vec![ARRIVING.to_string()]))
+        }
+        None => Some((shape, Vec::new())),
+    }
 }
 
 /// Stand-in id for the pane being placed. Starts with a control character so
@@ -757,7 +750,7 @@ fn destination_menu(
         let mut row = Row::item(label::tab_display(&tab.tab, tab.position))
             .secondary(tab_shape(tab))
             .detail(Some(tab_contents(tab)))
-            .extra(tab_diagram(tab, arriving));
+            .preview_of(tab_preview(tab, arriving));
         // Quick-pick numbers only make sense inside the current workspace,
         // where they match the tab numbers the user already knows.
         if workspace.workspace_id == snapshot.workspace.workspace_id && tab.position <= 9 {
@@ -817,19 +810,15 @@ fn choose_target_pane(
 }
 
 /// Side and size, asked only when the settings leave them open (§4.1, §12).
-/// The width and height every layout diagram is drawn at.
-const DIAGRAM: (usize, usize) = (12, 3);
-
 /// What the destination tab would look like with the pane added on `side`.
 ///
 /// Built by applying the split to the tab's real shape, so the preview is the
 /// same computation the move itself will perform rather than a drawing that
 /// merely resembles it.
-fn placement_preview(shape: &Shape, target: &str, side: Side) -> Vec<String> {
-    const ARRIVING: &str = "\u{1}arriving";
+fn placement_preview(shape: &Shape, target: &str, side: Side) -> (Shape, Vec<String>) {
     let mut after = shape.clone();
     after.split(target, ARRIVING, side);
-    after.diagram_with(DIAGRAM.0, DIAGRAM.1, Some(ARRIVING))
+    (after, vec![ARRIVING.to_string()])
 }
 
 fn ask_placement(
@@ -847,7 +836,8 @@ fn ask_placement(
                 let mut row =
                     Row::item(capitalize(side.as_str())).hotkey(side.hotkey().to_string());
                 if let Some((shape, target)) = preview {
-                    row = row.extra(placement_preview(shape, target, side));
+                    let (after, marked) = placement_preview(shape, target, side);
+                    row = row.preview(after, marked);
                 }
                 menu.item(row, side);
             }

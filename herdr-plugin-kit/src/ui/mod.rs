@@ -2,7 +2,7 @@ pub mod menu;
 pub mod term;
 
 pub use menu::{Interrupt, Menu};
-pub use term::{Chip, Key, Row, RowKind, Term, View};
+pub use term::{Chip, Key, Preview, Row, RowKind, Term, View};
 
 use crossterm::style::Color;
 

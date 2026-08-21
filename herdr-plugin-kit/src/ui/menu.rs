@@ -335,16 +335,12 @@ impl<T: Clone> Menu<T> {
             // The picture belongs to the row being considered, but it is drawn
             // in a fixed block at the bottom rather than under the row, so the
             // list does not shift as the cursor moves through it.
-            self.view.preview = under_cursor
-                .map(|i| all_rows[i].extra.clone())
-                .unwrap_or_default();
-            self.view.preview_height = all_rows.iter().map(|row| row.extra.len()).max().unwrap_or(0);
-            // A row with nothing to show still gets the space — taking it back
-            // would move the list, which is the whole thing this avoids — so
-            // say why it is empty rather than leaving a bare band.
-            if self.view.preview.is_empty() && self.view.preview_height > 0 {
-                self.view.preview = vec![String::new(), self.no_preview.to_string()];
-            }
+            self.view.preview = under_cursor.and_then(|i| all_rows[i].preview.clone());
+            // Space is kept for the picture whether or not this row has one:
+            // reclaiming it would move the list, which is what the fixed area
+            // exists to prevent. Rows with nothing to draw say why instead.
+            self.view.reserve_preview = all_rows.iter().any(|row| row.preview.is_some());
+            self.view.no_preview = self.no_preview.to_string();
             self.view.rows = visible
                 .iter()
                 .map(|i| {

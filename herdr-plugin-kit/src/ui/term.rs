@@ -68,12 +68,12 @@ pub struct Row {
     pub secondary: Option<String>,
     /// Dimmed line underneath, e.g. the terminal title.
     pub detail: Option<String>,
-    /// Extra dimmed lines under the row — a diagram, say.
+    /// The layout to draw in the preview area when this row is highlighted.
     ///
-    /// Drawn only for the row under the cursor (see `Menu::run_with`): a
-    /// picture worth several lines is worth them for the one entry being
-    /// considered, and not for the rest of the list at the same time.
-    pub extra: Vec<String>,
+    /// Held as a tree rather than as finished lines because only the renderer
+    /// knows how much room is left once the list is placed, and a picture that
+    /// fills the space is worth more than one drawn to a guessed size.
+    pub preview: Option<Preview>,
     /// Dimmed text pinned to the right edge of the line.
     ///
     /// For a value that repeats down the list — which tool a conversation
@@ -94,7 +94,7 @@ impl Row {
             primary: primary.into(),
             secondary: None,
             detail: None,
-            extra: Vec::new(),
+            preview: None,
             trailing: None,
         }
     }
@@ -148,8 +148,14 @@ impl Row {
         self
     }
 
-    pub fn extra(mut self, lines: Vec<String>) -> Self {
-        self.extra = lines;
+    pub fn preview(mut self, shape: crate::layout::Shape, marked: Vec<String>) -> Self {
+        self.preview = Some(Preview { shape, marked });
+        self
+    }
+
+    /// The same, for callers whose preview may not exist.
+    pub fn preview_of(mut self, preview: Option<(crate::layout::Shape, Vec<String>)>) -> Self {
+        self.preview = preview.map(|(shape, marked)| Preview { shape, marked });
         self
     }
 
@@ -179,6 +185,13 @@ impl Chip {
     }
 }
 
+/// A tab layout to draw, with the panes an operation would touch.
+#[derive(Debug, Clone)]
+pub struct Preview {
+    pub shape: crate::layout::Shape,
+    pub marked: Vec<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct View {
     pub title: String,
@@ -196,10 +209,12 @@ pub struct View {
     /// row is highlighted pushes every row below it down, so the list moves
     /// under the reader as they arrow through it. Reserving the space instead
     /// costs a few lines and keeps every row exactly where it was.
-    pub preview: Vec<String>,
-    /// Lines reserved for `preview`, held constant so the list cannot reflow
-    /// when one entry's picture is taller than another's.
-    pub preview_height: usize,
+    pub preview: Option<Preview>,
+    /// Whether to keep room for a preview even on rows that have none, so the
+    /// list cannot reflow as the cursor moves.
+    pub reserve_preview: bool,
+    /// Shown in the preview area for rows with nothing to draw.
+    pub no_preview: String,
     /// Current filter text, shown as a prompt line. `None` hides the prompt.
     pub query: Option<String>,
     /// How many entries survive the filter, shown beside the prompt.
@@ -216,8 +231,9 @@ impl View {
             footer: None,
             cursor: None,
             accent: Color::Cyan,
-            preview: Vec::new(),
-            preview_height: 0,
+            preview: None,
+            reserve_preview: false,
+            no_preview: String::new(),
             query: None,
             match_count: None,
         }
@@ -423,8 +439,11 @@ impl Term {
             .collect();
         let total: usize = heights.iter().sum();
         // Everything above the footer and the preview belongs to the list.
-        let reserved = if view.preview_height > 0 {
-            view.preview_height + 1
+        // The preview keeps a floor so a long list cannot squeeze it away; any
+        // room the list does not use goes to the picture, which is why the
+        // diagram is drawn at render time rather than built in advance.
+        let reserved = if view.reserve_preview {
+            PREVIEW_MIN + 1
         } else {
             0
         };
@@ -468,13 +487,21 @@ impl Term {
             queue!(self.out, ResetColor)?;
         }
 
-        if view.preview_height > 0 {
-            // Anchored to the bottom rather than following the list, so it is
-            // in the same place on every frame.
-            let top = height
-                .saturating_sub(1)
-                .saturating_sub(view.preview_height as u16);
-            for (offset, text) in view.preview.iter().enumerate() {
+        if view.reserve_preview {
+            // Everything between the list and the footer.
+            let top = line + 1;
+            let room = height.saturating_sub(1).saturating_sub(top) as usize;
+            let lines = match (&view.preview, room >= 4) {
+                (Some(preview), true) => {
+                    // A diagram is `2 * cells + 1` characters each way.
+                    let cells_h = (room - 1) / 2;
+                    let cells_w = (width.saturating_sub(5)) / 2;
+                    let marked: Vec<&str> = preview.marked.iter().map(String::as_str).collect();
+                    preview.shape.diagram_marking(cells_w, cells_h, &marked)
+                }
+                _ => vec![view.no_preview.clone()],
+            };
+            for (offset, text) in lines.iter().enumerate() {
                 let row = top + offset as u16;
                 if row >= height.saturating_sub(1) {
                     break;
@@ -783,6 +810,9 @@ fn secondary_column(rows: &[Row], width: usize) -> usize {
         widest
     }
 }
+
+/// Smallest preview worth drawing; the list may not take these lines.
+const PREVIEW_MIN: usize = 6;
 
 /// Display width, counting CJK as two columns.
 fn columns(text: &str) -> usize {
