@@ -54,6 +54,16 @@ fn menu(
     let tab = herdr.tab(tab_id)?;
     let panes = layout.root.pane_ids();
     let current = Shape::from_layout(&layout.root);
+    let current_preview = current
+        .clone()
+        .map(|shape| (shape, vec![source.pane_id.clone()]));
+    // Zoom is a toggle, so its preview has to describe the state *after* the
+    // key is taken, rather than merely showing the current split tree.
+    let zoom_preview = if layout.zoomed {
+        current_preview.clone()
+    } else {
+        Some((Shape::pane(&source.pane_id), vec![source.pane_id.clone()]))
+    };
 
     let mut menu = Menu::new("Layout Tools")
         .subtitle(format!(
@@ -66,13 +76,15 @@ fn menu(
     menu.item(
         Row::item("Equalize")
             .hotkey("e")
-            .secondary("すべての Pane を同じ大きさに"),
+            .secondary("すべての Pane を同じ大きさに")
+            .preview_of(current_preview.clone()),
         Choice::Equalize,
     );
     menu.item(
         Row::item("Zoom current pane")
             .hotkey("z")
-            .secondary(label::pane_compact(source)),
+            .secondary(label::pane_compact(source))
+            .preview_of(zoom_preview),
         Choice::Zoom,
     );
 
@@ -94,7 +106,8 @@ fn menu(
         menu.item(
             Row::item(arrangement.title())
                 .hotkey(arrangement.hotkey())
-                .secondary(note),
+                .secondary(note)
+                .preview_of(arrangement_preview(arrangement, &panes, &source.pane_id)),
             Choice::Arrange(arrangement),
         );
     }
@@ -112,7 +125,9 @@ fn menu(
                 format!("{} — needs {} here", layout.describe(), panes.len())
             };
             menu.item(
-                Row::item(name.clone()).secondary(note),
+                Row::item(name.clone())
+                    .secondary(note)
+                    .preview_of(saved_preview(layout, &panes, &source.pane_id)),
                 Choice::Apply(name.clone()),
             );
         }
@@ -122,7 +137,8 @@ fn menu(
     menu.item(
         Row::item("Save this layout")
             .hotkey("s")
-            .secondary("今の形に名前を付けて覚える"),
+            .secondary("今の形に名前を付けて覚える")
+            .preview_of(current_preview),
         Choice::Save,
     );
     if !saved.is_empty() {
@@ -158,6 +174,35 @@ fn menu(
     }
 }
 
+/// Diagram the target arrangement before any pane is moved.
+///
+/// `Plan::simulate` is also the shape that `ops::rebuild` produces, so the
+/// picker cannot drift into showing a decorative diagram that differs from
+/// the shortcuts' actual result.
+fn arrangement_preview(
+    arrangement: Arrangement,
+    panes: &[String],
+    current_pane: &str,
+) -> Option<(Shape, Vec<String>)> {
+    arrangement
+        .plan(panes, Some(current_pane))
+        .map(|plan| (plan.simulate(), vec![current_pane.to_string()]))
+}
+
+/// Diagram a saved layout with this tab's panes filled into its slots.
+///
+/// A mismatched saved layout has no valid after-state; the row's existing
+/// "needs N here" note remains the useful explanation in that case.
+fn saved_preview(
+    layout: &template::Template,
+    panes: &[String],
+    current_pane: &str,
+) -> Option<(Shape, Vec<String>)> {
+    layout
+        .plan(panes)
+        .ok()
+        .map(|plan| (plan.simulate(), vec![current_pane.to_string()]))
+}
 
 /// Ask what to call the layout being saved.
 ///

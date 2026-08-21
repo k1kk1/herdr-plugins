@@ -149,13 +149,23 @@ impl Row {
     }
 
     pub fn preview(mut self, shape: crate::layout::Shape, marked: Vec<String>) -> Self {
-        self.preview = Some(Preview { shape, marked });
+        self.preview = Some(Preview::new(vec![
+            Panel::new(String::new(), shape).marking(marked),
+        ]));
         self
     }
 
     /// The same, for callers whose preview may not exist.
     pub fn preview_of(mut self, preview: Option<(crate::layout::Shape, Vec<String>)>) -> Self {
-        self.preview = preview.map(|(shape, marked)| Preview { shape, marked });
+        self.preview = preview.map(|(shape, marked)| {
+            Preview::new(vec![Panel::new(String::new(), shape).marking(marked)])
+        });
+        self
+    }
+
+    /// Several captioned diagrams, drawn side by side.
+    pub fn panels(mut self, panels: Vec<Panel>) -> Self {
+        self.preview = (!panels.is_empty()).then(|| Preview::new(panels));
         self
     }
 
@@ -185,11 +195,54 @@ impl Chip {
     }
 }
 
-/// A tab layout to draw, with the panes an operation would touch.
+/// One captioned diagram inside a preview.
+#[derive(Debug, Clone)]
+pub struct Panel {
+    pub caption: String,
+    /// `None` draws the caption over an explicit "nothing left" box, which is
+    /// what a tab that closes should look like.
+    pub shape: Option<crate::layout::Shape>,
+    pub marked: Vec<String>,
+}
+
+impl Panel {
+    pub fn new(caption: impl Into<String>, shape: crate::layout::Shape) -> Self {
+        Self {
+            caption: caption.into(),
+            shape: Some(shape),
+            marked: Vec::new(),
+        }
+    }
+
+    /// A panel for something that will not exist afterwards.
+    pub fn gone(caption: impl Into<String>) -> Self {
+        Self {
+            caption: caption.into(),
+            shape: None,
+            marked: Vec::new(),
+        }
+    }
+
+    pub fn marking(mut self, marked: Vec<String>) -> Self {
+        self.marked = marked;
+        self
+    }
+}
+
+/// What an operation would leave behind, drawn.
+///
+/// Several panels rather than one because most of these operations move a pane
+/// *between* tabs: a single picture can only show where it came from or where
+/// it lands, and the useful thing is the pair.
 #[derive(Debug, Clone)]
 pub struct Preview {
-    pub shape: crate::layout::Shape,
-    pub marked: Vec<String>,
+    pub panels: Vec<Panel>,
+}
+
+impl Preview {
+    pub fn new(panels: Vec<Panel>) -> Self {
+        Self { panels }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -491,20 +544,22 @@ impl Term {
             // Everything between the list and the footer.
             let top = line + 1;
             let room = height.saturating_sub(1).saturating_sub(top) as usize;
-            let lines = match (&view.preview, room >= 4) {
+            let lines = match (&view.preview, room >= 5) {
                 (Some(preview), true) => {
-                    // A diagram is `2 * cells + 1` characters each way.
-                    let cells_h = (room - 1) / 2;
+                    // One line goes to the captions above the boxes.
+                    let cells_h = (room - 2) / 2;
                     let lines = 2 * cells_h + 1;
                     // Shaped like a screen rather than stretched to the pane.
                     // A terminal cell is about twice as tall as it is wide, so
                     // 16:9 on screen is roughly 3.5 columns per line — running
                     // to the full width instead gives a letterbox nothing on a
                     // real monitor looks like.
-                    let across = (lines * 32 / 9).min(width.saturating_sub(4));
+                    let panels = preview.panels.len().max(1);
+                    let arrows = panels.saturating_sub(1) * ARROW.chars().count();
+                    let budget = width.saturating_sub(4).saturating_sub(arrows);
+                    let across = (lines * 32 / 9).min(budget / panels);
                     let cells_w = across.saturating_sub(1) / 2;
-                    let marked: Vec<&str> = preview.marked.iter().map(String::as_str).collect();
-                    preview.shape.diagram_marking(cells_w, cells_h, &marked)
+                    draw_panels(&preview.panels, cells_w, cells_h)
                 }
                 _ => vec![view.no_preview.clone()],
             };
@@ -816,6 +871,73 @@ fn secondary_column(rows: &[Row], width: usize) -> usize {
     } else {
         widest
     }
+}
+
+/// Drawn between panels: the operation reads left to right.
+const ARROW: &str = "  →  ";
+
+/// Lay captioned diagrams out side by side.
+///
+/// Captions sit on their own line above the boxes rather than beside them, so
+/// a long caption cannot push the diagrams out of alignment with each other.
+fn draw_panels(panels: &[Panel], cells_w: usize, cells_h: usize) -> Vec<String> {
+    let drawn: Vec<Vec<String>> = panels
+        .iter()
+        .map(|panel| match &panel.shape {
+            Some(shape) => {
+                let marked: Vec<&str> = panel.marked.iter().map(String::as_str).collect();
+                shape.diagram_marking(cells_w, cells_h, &marked)
+            }
+            None => empty_box(cells_w, cells_h),
+        })
+        .collect();
+
+    let widths: Vec<usize> = drawn
+        .iter()
+        .map(|lines| lines.iter().map(|l| columns(l)).max().unwrap_or(0))
+        .collect();
+
+    let mut out = vec![panels
+        .iter()
+        .zip(&widths)
+        .map(|(panel, width)| pad(&truncate(&panel.caption, *width), *width))
+        .collect::<Vec<_>>()
+        .join(&" ".repeat(ARROW.chars().count()))];
+
+    let height = drawn.iter().map(Vec::len).max().unwrap_or(0);
+    // The arrow belongs on the middle line, where the eye is.
+    let middle = height / 2;
+    for row in 0..height {
+        let joiner = if row == middle {
+            ARROW.to_string()
+        } else {
+            " ".repeat(ARROW.chars().count())
+        };
+        let cells: Vec<String> = drawn
+            .iter()
+            .zip(&widths)
+            .map(|(lines, width)| pad(lines.get(row).map(String::as_str).unwrap_or(""), *width))
+            .collect();
+        out.push(cells.join(&joiner));
+    }
+    out
+}
+
+/// A dashed outline, for a tab that will not be there afterwards.
+fn empty_box(cells_w: usize, cells_h: usize) -> Vec<String> {
+    let width = 2 * cells_w.max(2) + 1;
+    let height = 2 * cells_h.max(2) + 1;
+    let mut out = vec![format!("┌{}┐", "╌".repeat(width.saturating_sub(2)))];
+    for _ in 1..height.saturating_sub(1) {
+        out.push(format!("╎{}╎", " ".repeat(width.saturating_sub(2))));
+    }
+    out.push(format!("└{}┘", "╌".repeat(width.saturating_sub(2))));
+    out
+}
+
+fn pad(text: &str, width: usize) -> String {
+    let used = columns(text);
+    format!("{text}{}", " ".repeat(width.saturating_sub(used)))
 }
 
 /// Smallest preview worth drawing; the list may not take these lines.

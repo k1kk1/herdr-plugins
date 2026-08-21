@@ -426,6 +426,32 @@ impl Shape {
     }
 
     /// Leftmost/topmost pane — the one a subtree is grown from.
+    /// Take `id` out of the tree, closing the split it was half of.
+    ///
+    /// Returns `None` when that pane was all there was — the tab it describes
+    /// would cease to exist, and an empty box would be a lie about what
+    /// happens next.
+    pub fn without(&self, id: &str) -> Option<Shape> {
+        match self {
+            Shape::Pane(pane) => (pane != id).then(|| self.clone()),
+            Shape::Split {
+                side,
+                first,
+                second,
+            } => match (first.without(id), second.without(id)) {
+                // The surviving side takes the whole space, exactly as Herdr
+                // does when a pane leaves.
+                (None, Some(rest)) | (Some(rest), None) => Some(rest),
+                (Some(a), Some(b)) => Some(Shape::Split {
+                    side: *side,
+                    first: Box::new(a),
+                    second: Box::new(b),
+                }),
+                (None, None) => None,
+            },
+        }
+    }
+
     pub fn first_pane(&self) -> &str {
         match self {
             Shape::Pane(id) => id,
@@ -479,6 +505,48 @@ impl Shape {
                 second: Box::new(Shape::from_layout(second)?),
             }),
         }
+    }
+}
+
+#[cfg(test)]
+mod without_tests {
+    use super::*;
+
+    fn split(side: Side, a: Shape, b: Shape) -> Shape {
+        Shape::Split {
+            side,
+            first: Box::new(a),
+            second: Box::new(b),
+        }
+    }
+
+    #[test]
+    fn the_surviving_side_takes_the_whole_space() {
+        let shape = split(Side::Right, Shape::pane("a"), Shape::pane("b"));
+        assert_eq!(shape.without("a"), Some(Shape::pane("b")));
+        assert_eq!(shape.without("b"), Some(Shape::pane("a")));
+    }
+
+    #[test]
+    fn removing_the_only_pane_leaves_nothing_rather_than_an_empty_box() {
+        assert_eq!(Shape::pane("a").without("a"), None);
+    }
+
+    #[test]
+    fn a_pane_that_is_not_there_changes_nothing() {
+        let shape = split(Side::Down, Shape::pane("a"), Shape::pane("b"));
+        assert_eq!(shape.without("zzz"), Some(shape.clone()));
+    }
+
+    #[test]
+    fn only_the_split_that_held_it_collapses() {
+        // (r a (d b c)) minus b is (r a c): the outer split survives.
+        let inner = split(Side::Down, Shape::pane("b"), Shape::pane("c"));
+        let shape = split(Side::Right, Shape::pane("a"), inner);
+        assert_eq!(
+            shape.without("b"),
+            Some(split(Side::Right, Shape::pane("a"), Shape::pane("c")))
+        );
     }
 }
 

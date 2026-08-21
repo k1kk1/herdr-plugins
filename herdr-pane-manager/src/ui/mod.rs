@@ -10,7 +10,7 @@ use herdr_plugin_kit::context;
 use herdr_plugin_kit::herdr::{Herdr, Pane, Workspace};
 use herdr_plugin_kit::label;
 use herdr_plugin_kit::layout::{Ratio, Shape, Side};
-use herdr_plugin_kit::ui::{Key, Menu, Row, Term};
+use herdr_plugin_kit::ui::{Key, Menu, Panel, Row, Term};
 use herdr_plugin_kit::{bail, Outcome, Result};
 
 use crate::config::Config;
@@ -136,10 +136,15 @@ fn manager_footer(term: &Term, config: &Config) -> String {
     };
     // `1-9` only earns its place in the line when there are numbered rows.
     let digits = if config.show_quick_move { "1-9・" } else { "" };
-    format!("{digits}英字・Enter {plain}  ·  {shift_key} {shifted}  ·  Esc 閉じる")
+    format!("{digits}英字・Enter {plain}  ·  {shift_key} {shifted}  ·  Esc 閉じる（先の画面では戻る）")
 }
 
 /// The overlay (spec §9.2, addendum §1).
+///
+/// Re-enters itself whenever a screen below is left without doing anything, so
+/// Esc down there means "back" rather than "give up" — the reader who opens
+/// `Move to…`, looks at the tabs and changes their mind lands where they
+/// started rather than with the overlay shut.
 fn manager(
     term: &mut Term,
     herdr: &Herdr,
@@ -147,6 +152,32 @@ fn manager(
     config: &Config,
     config_warning: Option<String>,
 ) -> Result<Option<Outcome>> {
+    loop {
+        match manager_once(term, herdr, snapshot, config, config_warning.clone())? {
+            Step::Done(outcome) => return Ok(Some(outcome)),
+            Step::Back => continue,
+            Step::Close => return Ok(None),
+        }
+    }
+}
+
+/// How one pass through the overlay ended.
+enum Step {
+    /// An operation ran; report it and finish.
+    Done(Outcome),
+    /// A screen below was cancelled. Show the menu again.
+    Back,
+    /// Esc or Cancel on the menu itself. Nothing left to go back to.
+    Close,
+}
+
+fn manager_once(
+    term: &mut Term,
+    herdr: &Herdr,
+    snapshot: &Snapshot,
+    config: &Config,
+    config_warning: Option<String>,
+) -> Result<Step> {
     let mut menu = Menu::new("Pane Manager")
         .subtitle(source_line(snapshot, config))
         // The keys live here rather than beside the rows they apply to: a hint
@@ -195,28 +226,28 @@ fn manager(
         Row::item("Move to…")
             .hotkey("m")
             .secondary("この Pane を別の Tab へ移す")
-            .preview_of(source_preview(snapshot, false)),
+            .panels(operation_preview(&Choice::Move, snapshot, config)),
         Choice::Move,
     );
     menu.item(
         Row::item("Swap with…")
             .hotkey("s")
             .secondary("別の Pane と入れ替える")
-            .preview_of(source_preview(snapshot, false)),
+            .panels(operation_preview(&Choice::Swap, snapshot, config)),
         Choice::Swap,
     );
     menu.item(
         Row::item("Extract…")
             .hotkey("e")
             .secondary("独立した Tab へ切り出す")
-            .preview_of(source_preview(snapshot, false)),
+            .panels(operation_preview(&Choice::Extract, snapshot, config)),
         Choice::Extract,
     );
     menu.item(
         Row::item("Fold into…")
             .hotkey("f")
             .secondary("この Tab を別の Tab へ畳む")
-            .preview_of(source_preview(snapshot, true)),
+            .panels(operation_preview(&Choice::Merge, snapshot, config)),
         Choice::Merge,
     );
 
@@ -258,7 +289,7 @@ fn manager(
     }
 
     let Some(choice) = menu.run(term)? else {
-        return Ok(None);
+        return Ok(Step::Close);
     };
 
     // Shift means "that, but let me say where" — on a quick row it names the
@@ -273,8 +304,14 @@ fn manager(
         (choice, _) => choice,
     };
 
-    match choice {
-        Choice::Cancel => Ok(None),
+    if choice == Choice::Cancel {
+        return Ok(Step::Close);
+    }
+
+    // A flow that returns nothing was cancelled on its own screen; that is a
+    // step back, not the end of the session.
+    let outcome = match choice {
+        Choice::Cancel => unreachable!("handled above"),
         Choice::Undo => undo::undo(herdr).map(Some),
         Choice::Gather => gather_flow(term, herdr, config),
         Choice::Restore => gather::restore(herdr).map(Some),
@@ -326,7 +363,12 @@ fn manager(
                 },
             )
         }
-    }
+    }?;
+
+    Ok(match outcome {
+        Some(outcome) => Step::Done(outcome),
+        None => Step::Back,
+    })
 }
 
 /// One line saying what a Gather would collect right now.
@@ -699,19 +741,67 @@ fn swap_flow(
 /// Move, Swap and Fold all ask for a destination afterwards, so a picture of
 /// the result would be a guess. What *is* settled at this point is which panes
 /// are leaving, and that is the half worth drawing.
-fn source_preview(snapshot: &Snapshot, whole_tab: bool) -> Option<(Shape, Vec<String>)> {
-    let tab = snapshot.source_tab()?;
-    let shape = match &tab.shape {
-        Some(shape) => shape.clone(),
-        None => Shape::pane(&snapshot.source.pane_id),
-    };
-    let taken = if whole_tab {
-        tab.panes.iter().map(|p| p.pane_id.clone()).collect()
-    } else {
-        vec![snapshot.source.pane_id.clone()]
-    };
-    Some((shape, taken))
+/// What this tab looks like once the source pane has left it.
+fn after_leaving(snapshot: &Snapshot) -> Panel {
+    let here = snapshot
+        .source_tab()
+        .and_then(|tab| tab.shape.clone())
+        .unwrap_or_else(|| Shape::pane(&snapshot.source.pane_id));
+    match here.without(&snapshot.source.pane_id) {
+        Some(rest) => Panel::new("この Tab", rest),
+        // The last pane leaving takes the tab with it. Saying so is the whole
+        // reason the empty panel exists.
+        None => Panel::gone("Tab は閉じます"),
+    }
 }
+
+/// A stand-in for a destination not chosen yet: one pane, with the moved one
+/// arriving beside it on the configured side.
+fn arriving_panel(caption: &str, config: &Config) -> Panel {
+    let mut shape = Shape::pane(ELSEWHERE);
+    let side = config.default_move_direction.resolve().unwrap_or(Side::Right);
+    shape.split(ELSEWHERE, ARRIVING, side);
+    Panel::new(caption, shape).marking(vec![ARRIVING.to_string()])
+}
+
+/// The pictures for each operation in the menu: what the session looks like
+/// *afterwards*, not what it looks like now.
+///
+/// Drawn as a pair wherever a pane crosses between tabs, because that is the
+/// part a single diagram cannot show — the previous version drew the current
+/// tab for Move, Swap and Extract alike, so three different operations were
+/// illustrated by the same unchanging picture.
+fn operation_preview(choice: &Choice, snapshot: &Snapshot, config: &Config) -> Vec<Panel> {
+    let source = snapshot.source.pane_id.clone();
+    let here = || {
+        snapshot
+            .source_tab()
+            .and_then(|tab| tab.shape.clone())
+            .unwrap_or_else(|| Shape::pane(&source))
+    };
+    match choice {
+        Choice::Move => vec![after_leaving(snapshot), arriving_panel("移動先の Tab", config)],
+        Choice::Extract => vec![
+            after_leaving(snapshot),
+            Panel::new("新しい Tab", Shape::pane(ARRIVING)).marking(vec![ARRIVING.to_string()]),
+        ],
+        // Swap keeps both tabs' shapes; what changes is which pane sits where,
+        // so both sides are marked rather than one being removed.
+        Choice::Swap => vec![
+            Panel::new("この Tab", here()).marking(vec![source]),
+            arriving_panel("相手の Tab", config),
+        ],
+        // Fold empties this tab into another one.
+        Choice::Merge => vec![
+            Panel::gone("Tab は閉じます"),
+            arriving_panel("畳む先の Tab", config),
+        ],
+        _ => Vec::new(),
+    }
+}
+
+/// Stand-in id for a pane that is already in the destination.
+const ELSEWHERE: &str = "\u{1}elsewhere";
 
 /// The destination tab, and the pane that would arrive in it.
 ///
