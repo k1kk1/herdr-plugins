@@ -1,0 +1,60 @@
+# Herdr Sessions settings.
+#
+# Copy this to the plugin's config directory to use it:
+#
+#   herdr plugin config-dir sessions
+
+[sessions]
+
+# How to open a session in a new terminal window.
+#
+# `{session}` is replaced with the session name and `{herdr}` with the Herdr
+# binary. The command is spawned directly, not through a shell, so nothing in
+# it is word-split or glob-expanded.
+#
+# Leave this out and the plugin works it out from $TERM_PROGRAM, falling back
+# to whichever terminal it recognises in /Applications.
+#
+# Why a new window rather than the current one: `herdr session attach` takes
+# over the terminal it runs in, and Herdr refuses to run nested inside one of
+# its own panes unless you set `[experimental] allow_nested`.
+
+# Ghostty (the default when TERM_PROGRAM=ghostty)
+# command = ["open", "-na", "Ghostty.app", "--args", "-e", "{herdr}", "session", "attach", "{session}"]
+
+# WezTerm
+# command = ["open", "-na", "WezTerm.app", "--args", "start", "--", "{herdr}", "session", "attach", "{session}"]
+
+# kitty
+# command = ["open", "-na", "kitty.app", "--args", "{herdr}", "session", "attach", "{session}"]
+
+# iTerm2, which only takes a command through AppleScript
+# command = ["osascript", "-e", 'tell app "iTerm" to create window with default profile command "{herdr} session attach {session}"']
+
+# Linux
+# command = ["{herdr}", "session", "attach", "{session}"]
+
+# ---------------------------------------------------------------------------
+# 過去の Claude Code / Codex セッション
+# ---------------------------------------------------------------------------
+
+# 一覧に出す件数。**省略すると全件**です。
+#
+# 各トランスクリプトは先頭か末尾しか読まないので、全件でも安いままです。
+# 実測: 515MB・94会話の要約に 80ms。
+#
+# これが成り立たなくなったら設定してください。**取得件数の上限でもあります** —
+# 更新時刻で並べ替えてから、残ったものだけを読みます。50 なら50回の読み取りです。
+# recent = 50
+
+# 再開したセッションをどこに置くか。ピッカーでは Enter の修飾で選べるので、
+# ここで決まるのは**修飾なしの Enter が何をするか**だけです。
+#
+#   workspace  新しい Workspace（Enter）
+#   tab        今の Workspace に新しい Tab（Shift+Enter）
+#   split      今の Pane を分割（Opt+Enter）
+#
+# Shift+Enter は Kitty キーボードプロトコルに対応したターミナルでのみ区別できます
+# （Ghostty / kitty / WezTerm は可、Terminal.app は不可）。区別できない環境では
+# ただの Enter として届くので、フッターにも出しません。
+# resume_in = "workspace"

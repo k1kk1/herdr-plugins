@@ -195,6 +195,89 @@ herdr pane get "$HERDR_PANE_ID"   # ここの workspace_id が本当の現在地
 
 ---
 
+## セッション
+
+Herdr のセッションはそれぞれ**独立したサーバ**で、独立した socket を持ちます。
+名前付きセッションは `~/.config/herdr/sessions/<name>/` に置かれます。
+
+### socket からは他のセッションが見えない
+
+**`session.list` は存在しません。** あるのは `session.snapshot` だけで、
+これは今つないでいるセッションしか答えません。
+
+一覧を取るには `herdr session list --json` を使います（CLI がディスクを読みます）。
+
+```json
+{"sessions":[{"default":true,"name":"default","running":true,
+  "session_dir":"/Users/…/.config/herdr",
+  "socket_path":"/Users/…/.config/herdr/herdr.sock"}]}
+```
+
+他のセッションの中身を知りたければ、**その `socket_path` に直接つなぎます。**
+`session.snapshot` は `workspaces` / `tabs` / `panes` / `agents` を
+**1往復でまとめて**返すので、要約1件につき接続1回で済みます。
+
+停止中のセッションには socket がないので、`<session_dir>/session.json` を読みます。
+これは Herdr の内部フォーマット（現在 `"version": 3`）です。
+
+### 入れ子起動は既定で禁止
+
+Pane の中で `herdr` を起動すると拒否されます。
+
+```
+error: nested herdr is disabled by default.
+```
+
+`[experimental] allow_nested = true` で解除できますが、既定は off です。
+**Pane の中に別のセッションを開くことはできません。**
+
+### macOS の `open` は環境変数を引き継ぐ
+
+`open -na Ghostty.app --args -e …` は **呼び出し元の環境をアプリに渡します。**
+Pane から実行すると、新しいトップレベルのウィンドウにも `HERDR_ENV=1` が付いてきて、
+上の nested 判定で弾かれます。
+
+```bash
+# 弾かれる
+open -na Ghostty.app --args -e herdr session attach probe
+
+# 通る
+env -u HERDR_ENV -u HERDR_PANE_ID -u HERDR_SOCKET_PATH \
+  open -na Ghostty.app --args -e herdr session attach probe
+```
+
+`HERDR_` で始まる変数をすべて落とすのが安全です。古い `HERDR_PANE_ID` /
+`HERDR_SOCKET_PATH` が残ると、新しいセッションの Pane が**元のサーバ**を向きます。
+
+### Agent の session id は内部にしか無い
+
+`pane.report_agent_session` は `agent_session_id` / `agent_session_path` を
+受け取りますが、**`pane.get` にも `agent.list` にも出てきません。**
+イベント (`events.subscribe`) の `AgentSessionInfo` にだけ現れます。
+
+Pane と Claude Code / Codex のトランスクリプトを突き合わせたいときは、
+`cwd` と `terminal_title_stripped` の一致で推定するしかありません。
+
+### `agent.start` で任意の引数を渡せる
+
+```json
+{"pane_id":"w1:p3","name":"claude","kind":"claude","args":["--resume","<uuid>"]}
+```
+
+`args` はそのまま argv になるので、`claude --resume <id>` / `codex resume <id>` に届きます。
+`tab.create` / `pane.split` / `workspace.create` はどれも `root_pane`（split は `pane`）を
+返すので、**作る → 撃つ**の2手で再開できます。
+
+**`cwd` を必ず渡します。** 会話の作業ディレクトリ以外で起動すると、Agent が
+「このフォルダを信頼しますか？」を出して止まります。
+
+### GUI から起動されたプロセスに Homebrew の PATH は無い
+
+`open` 経由のターミナルや Alfred のワークフローには `/opt/homebrew/bin` が
+入っていないことがあります。**`herdr` は絶対パスに解決してから渡します。**
+
+---
+
 ## CLI に無い API
 
 `herdr` CLI のサブコマンドに出ていなくても socket にはあります。

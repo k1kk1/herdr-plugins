@@ -9,7 +9,8 @@ use std::io::{Stdout, Write};
 use anyhow::Result;
 use crossterm::event::{
     self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind,
-    KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    KeyModifiers, KeyboardEnhancementFlags, MouseButton, MouseEvent, MouseEventKind,
+    PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
 };
 use crossterm::style::{Attribute, Color, Print, ResetColor, SetAttribute, SetForegroundColor};
 use crossterm::terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen};
@@ -20,9 +21,21 @@ use crossterm::{cursor, queue};
 pub enum Key {
     Char(char),
     Enter,
+    /// Enter with Shift held.
+    ///
+    /// Only reachable when the terminal reports modified Enter — see
+    /// [`Term::open`]. Where it is not, the key arrives as plain [`Key::Enter`]
+    /// and any behaviour bound to it must therefore be an *alternative* to
+    /// something Enter already does, never the only way to reach it.
+    ShiftEnter,
+    /// Enter with Alt (Option on a Mac) held.
+    AltEnter,
     Up,
     Down,
     Tab,
+    /// Shift+Tab. Reported by every terminal as its own code, unlike
+    /// Shift+Enter, so it needs no keyboard-protocol negotiation.
+    BackTab,
     Backspace,
     Esc,
     /// Left click on the rendered row at this index.
@@ -55,6 +68,14 @@ pub struct Row {
     pub secondary: Option<String>,
     /// Dimmed line underneath, e.g. the terminal title.
     pub detail: Option<String>,
+    /// Dimmed text pinned to the right edge of the line.
+    ///
+    /// For a value that repeats down the list — which tool a conversation
+    /// belongs to, say. Put in front it pushes every heading right and is the
+    /// first thing the eye lands on, which is backwards: the headings are what
+    /// is being read, and the repeated value only has to be *findable*. A
+    /// right-hand column keeps the headings flush left and still reads down.
+    pub trailing: Option<String>,
 }
 
 impl Row {
@@ -67,6 +88,7 @@ impl Row {
             primary: primary.into(),
             secondary: None,
             detail: None,
+            trailing: None,
         }
     }
 
@@ -118,12 +140,39 @@ impl Row {
         self.detail = text;
         self
     }
+
+    pub fn trailing(mut self, text: impl Into<String>) -> Self {
+        self.trailing = Some(text.into());
+        self
+    }
+}
+
+/// One entry of a view's tab strip.
+///
+/// A strip exists so the choice a key cycles through is *visible* rather than
+/// described. Spelling the options out in a sentence — "Tab narrows to one of
+/// them" — tells the reader a key exists but not where they currently are.
+#[derive(Debug, Clone)]
+pub struct Chip {
+    pub label: String,
+    pub active: bool,
+}
+
+impl Chip {
+    pub fn new(label: impl Into<String>, active: bool) -> Self {
+        Self {
+            label: label.into(),
+            active,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct View {
     pub title: String,
     pub subtitle: Option<String>,
+    /// Tab strip drawn under the subtitle. Empty hides the line.
+    pub tabs: Vec<Chip>,
     pub rows: Vec<Row>,
     pub footer: Option<String>,
     /// Index into `rows` currently under the arrow-key cursor.
@@ -140,6 +189,7 @@ impl View {
         Self {
             title: title.into(),
             subtitle: None,
+            tabs: Vec::new(),
             rows: Vec::new(),
             footer: None,
             cursor: None,
@@ -147,6 +197,11 @@ impl View {
             query: None,
             match_count: None,
         }
+    }
+
+    pub fn tabs(mut self, tabs: Vec<Chip>) -> Self {
+        self.tabs = tabs;
+        self
     }
 
     pub fn subtitle(mut self, text: impl Into<String>) -> Self {
@@ -174,6 +229,9 @@ impl View {
 pub struct Term {
     out: Stdout,
     active: bool,
+    /// The terminal answered yes to the Kitty keyboard protocol, so modified
+    /// Enter presses are distinguishable.
+    enhanced: bool,
     /// First screen line of each rendered row, paired with that row's index in
     /// the full list, so a mouse click can be turned back into the row the user
     /// aimed at even when the list is scrolled.
@@ -189,13 +247,35 @@ impl Term {
         terminal::enable_raw_mode()?;
         let mut out = std::io::stdout();
         queue!(out, EnterAlternateScreen, EnableMouseCapture, cursor::Hide)?;
+
+        // Ask for the Kitty keyboard protocol, without which Shift+Enter is
+        // indistinguishable from Enter: a plain terminal sends the same CR for
+        // both. Ghostty, kitty and WezTerm answer yes; Terminal.app does not,
+        // and there the Shift+Enter bindings simply fall back to Enter.
+        let enhanced = matches!(terminal::supports_keyboard_enhancement(), Ok(true));
+        if enhanced {
+            queue!(
+                out,
+                PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+            )?;
+        }
+
         out.flush()?;
         Ok(Self {
             out,
             active: true,
+            enhanced,
             row_lines: Vec::new(),
             scroll: 0,
         })
+    }
+
+    /// Whether the terminal can tell Shift+Enter from Enter.
+    ///
+    /// Callers use this to word their own footer honestly rather than to
+    /// advertise a key that will not arrive.
+    pub fn distinguishes_modified_enter(&self) -> bool {
+        self.enhanced
     }
 
     pub fn close(&mut self) {
@@ -203,6 +283,9 @@ impl Term {
             return;
         }
         self.active = false;
+        if self.enhanced {
+            let _ = queue!(self.out, PopKeyboardEnhancementFlags);
+        }
         let _ = queue!(
             self.out,
             cursor::Show,
@@ -248,6 +331,38 @@ impl Term {
                 Print(truncate(subtitle, width)),
                 ResetColor
             )?;
+            line += 1;
+        }
+        if !view.tabs.is_empty() {
+            // Drawn piece by piece rather than as one string: the active chip
+            // is the only thing on this line that should catch the eye, and
+            // that needs its own colours.
+            let mut column = 0usize;
+            queue!(self.out, cursor::MoveTo(0, line))?;
+            for chip in &view.tabs {
+                let text = format!(" {} ", chip.label);
+                if column + text.chars().count() > width {
+                    break;
+                }
+                column += text.chars().count();
+                if chip.active {
+                    queue!(
+                        self.out,
+                        SetAttribute(Attribute::Reverse),
+                        SetForegroundColor(view.accent),
+                        Print(text),
+                        SetAttribute(Attribute::Reset),
+                        ResetColor
+                    )?;
+                } else {
+                    queue!(
+                        self.out,
+                        SetForegroundColor(Color::DarkGrey),
+                        Print(text),
+                        ResetColor
+                    )?;
+                }
+            }
             line += 1;
         }
         if let Some(query) = &view.query {
@@ -414,11 +529,29 @@ impl Term {
                 if selected {
                     queue!(self.out, SetAttribute(Attribute::Bold))?;
                 }
-                queue!(
-                    self.out,
-                    Print(truncate(&text, width.saturating_sub(8))),
-                    SetAttribute(Attribute::Reset)
-                )?;
+
+                // Everything already printed on this line: the cursor column,
+                // the hotkey field, and the glyph if there is one.
+                let used = 2 + 3 + usize::from(row.glyph.is_some()) * 2;
+                let available = width.saturating_sub(used + 1);
+                let reserved = row
+                    .trailing
+                    .as_ref()
+                    .map_or(0, |trailing| columns(trailing) + 2);
+
+                let body = truncate(&text, available.saturating_sub(reserved));
+                queue!(self.out, Print(&body), SetAttribute(Attribute::Reset))?;
+
+                if let Some(trailing) = &row.trailing {
+                    let pad = available.saturating_sub(columns(&body) + columns(trailing));
+                    queue!(
+                        self.out,
+                        Print(" ".repeat(pad)),
+                        SetForegroundColor(Color::DarkGrey),
+                        Print(trailing),
+                        ResetColor
+                    )?;
+                }
             }
         }
 
@@ -461,10 +594,13 @@ impl Term {
                     }
                     return Ok(match code {
                         KeyCode::Char(c) => Key::Char(c),
+                        KeyCode::Enter if modifiers.contains(KeyModifiers::ALT) => Key::AltEnter,
+                        KeyCode::Enter if modifiers.contains(KeyModifiers::SHIFT) => Key::ShiftEnter,
                         KeyCode::Enter => Key::Enter,
                         KeyCode::Up => Key::Up,
                         KeyCode::Down => Key::Down,
                         KeyCode::Tab => Key::Tab,
+                        KeyCode::BackTab => Key::BackTab,
                         KeyCode::Backspace => Key::Backspace,
                         KeyCode::Esc => Key::Esc,
                         _ => Key::Other,
@@ -564,6 +700,11 @@ fn scroll_for(current: usize, cursor: Option<usize>, heights: &[usize], budget: 
     scroll.min(max_start)
 }
 
+/// Display width, counting CJK as two columns.
+fn columns(text: &str) -> usize {
+    text.chars().map(char_width).sum()
+}
+
 fn truncate(text: &str, width: usize) -> String {
     let mut out = String::new();
     let mut used = 0usize;
@@ -608,11 +749,6 @@ fn char_width(ch: char) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// Display width, counting CJK as two columns.
-    fn columns(text: &str) -> usize {
-        text.chars().map(char_width).sum()
-    }
 
     /// `n` single-line rows.
     fn flat(n: usize) -> Vec<usize> {
@@ -726,6 +862,22 @@ mod tests {
     fn an_empty_list_scrolls_nowhere() {
         assert_eq!(scroll_for(3, None, &[], 10), 0);
         assert_eq!(scroll_for(3, Some(0), &[], 10), 0);
+    }
+
+    #[test]
+    fn a_trailing_value_is_reserved_room_before_the_body_is_cut() {
+        // The body must never be allowed to eat the right-hand column, or the
+        // tool name would vanish on exactly the rows with the longest titles.
+        let available = 40usize;
+        let trailing = "(Claude)";
+        let reserved = columns(trailing) + 2;
+        let body = truncate(
+            "セッション一覧を表示して選択すると開くプラグインを作る",
+            available - reserved,
+        );
+        assert!(columns(&body) + reserved <= available);
+        let pad = available - columns(&body) - columns(trailing);
+        assert!(pad >= 2, "at least a gap must remain, got {pad}");
     }
 
     #[test]

@@ -62,6 +62,83 @@ impl Herdr {
         self.call_field("agent.list", json!({}), "agents")
     }
 
+    /// Make a tab and return the pane Herdr put in it.
+    ///
+    /// `cwd` matters more than it looks: an agent resumed in the wrong
+    /// directory will stop and ask whether the folder is trusted, and a
+    /// transcript's own directory is one it has already been trusted in.
+    pub fn create_tab(
+        &self,
+        workspace_id: &str,
+        label: &str,
+        cwd: Option<&str>,
+        focus: bool,
+    ) -> Result<Pane> {
+        self.call_field(
+            "tab.create",
+            json!({
+                "workspace_id": workspace_id,
+                "label": label,
+                "cwd": cwd,
+                "focus": focus,
+            }),
+            "root_pane",
+        )
+    }
+
+    /// Make a workspace and return the pane Herdr put in it.
+    pub fn create_workspace(&self, label: &str, cwd: Option<&str>, focus: bool) -> Result<Pane> {
+        // `workspace.create` names the pane differently from `tab.create`;
+        // both shapes are accepted so the caller does not have to care.
+        let result = self.call(
+            "workspace.create",
+            json!({ "label": label, "cwd": cwd, "focus": focus }),
+        )?;
+        for key in ["root_pane", "pane"] {
+            if let Some(pane) = result.get(key) {
+                return Ok(serde_json::from_value(pane.clone())?);
+            }
+        }
+        Err(anyhow!("workspace.create did not report a pane"))
+    }
+
+    /// Split `target_pane_id` and return the new pane.
+    pub fn split_pane(
+        &self,
+        target_pane_id: &str,
+        direction: Direction,
+        cwd: Option<&str>,
+        focus: bool,
+    ) -> Result<Pane> {
+        self.call_field(
+            "pane.split",
+            json!({
+                "target_pane_id": target_pane_id,
+                "direction": direction.as_str(),
+                "cwd": cwd,
+                "focus": focus,
+            }),
+            "pane",
+        )
+    }
+
+    /// Launch an agent in an existing pane.
+    ///
+    /// `args` is passed straight through as argv, which is what makes
+    /// `claude --resume <id>` and `codex resume <id>` reachable.
+    pub fn start_agent(&self, pane_id: &str, kind: &str, args: &[String]) -> Result<()> {
+        self.call(
+            "agent.start",
+            json!({
+                "pane_id": pane_id,
+                "name": kind,
+                "kind": kind,
+                "args": args,
+            }),
+        )
+        .map(|_| ())
+    }
+
     pub fn pane(&self, pane_id: &str) -> Result<Pane> {
         self.call_field("pane.get", json!({ "pane_id": pane_id }), "pane")
     }

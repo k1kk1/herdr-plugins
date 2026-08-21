@@ -65,9 +65,18 @@ pub fn socket_path() -> Result<PathBuf> {
 impl Herdr {
     /// Prepare a client, failing early if the server is not reachable.
     pub fn connect() -> Result<Self> {
-        let path = socket_path()?;
+        Self::at(socket_path()?)
+    }
+
+    /// Prepare a client for a socket other than this process's own.
+    ///
+    /// Each Herdr session has its own server and its own socket, and no
+    /// session's API can see any other. Reading a second session — what the
+    /// Sessions plugin does to summarise the ones you are not in — means
+    /// dialling that session's socket directly.
+    pub fn at(path: impl Into<PathBuf>) -> Result<Self> {
         let client = Self {
-            path,
+            path: path.into(),
             next_id: RefCell::new(0),
         };
         client.dial()?;

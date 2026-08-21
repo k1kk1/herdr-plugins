@@ -22,7 +22,7 @@ herdr plugin link "$PWD"
 
 ```toml
 [[keys.command]]
-key = "prefix+alt+p"
+key = "prefix+space"
 type = "popup"
 command = "~/src/herdr-plugins/herdr-command-palette/target/release/herdr-command-palette ui"
 width = "70%"

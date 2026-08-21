@@ -1,6 +1,6 @@
 # Herdr Plugins
 
-[Herdr](https://herdr.dev) 用のプラグイン集です。責務を分けた4つのプラグインと、それらが共有する1つのライブラリで構成されています。
+[Herdr](https://herdr.dev) 用のプラグイン集です。責務を分けた5つのプラグインと、それらが共有する1つのライブラリで構成されています。
 
 **動いているプロセスを止めずに** Pane を組み替えることを最優先の制約にしています。
 Codex / Claude / dev server / log tail は、移動・交換・統合・集約のどれを行っても再起動されません。
@@ -8,9 +8,10 @@ Codex / Claude / dev server / log tail は、移動・交換・統合・集約�
 | プラグイン | 責務 | 既定キー | Action数 |
 |---|---|---|---|
 | [herdr-pane-manager](herdr-pane-manager/) | Pane が **どの Tab に属するか** | `prefix+m` | 21 |
-| [herdr-layout-tools](herdr-layout-tools/) | Tab の **中のどこに置くか** | `prefix+alt+l` | 10 |
+| [herdr-layout-tools](herdr-layout-tools/) | Tab の **中のどこに置くか** | `prefix+shift+l` | 10 |
 | [herdr-navigator](herdr-navigator/) | **探して飛ぶ**（何も動かさない） | `prefix+f` | 4 |
-| [herdr-command-palette](herdr-command-palette/) | 全プラグインの Action を横断検索 | `prefix+alt+p` | 1 |
+| [herdr-command-palette](herdr-command-palette/) | 全プラグインの Action を横断検索 | `prefix+space` | 1 |
+| [herdr-sessions](herdr-sessions/) | **セッションの外**を見る。一覧して開く・再開する | `prefix+shift+s` | 5 |
 | [herdr-plugin-kit](herdr-plugin-kit/) | 共有ライブラリ（socket client / 表示名 / split tree / TUI） | — | — |
 
 この分割は `herdr-pane-manager-spec.md` §2.3 / §27 の棲み分け方針に沿ったものです。
@@ -51,6 +52,25 @@ Pane / Agent / Tab / Workspace を横断 fuzzy 検索して Focus を移すだ�
 全プラグインが公開している Action を1つの一覧にまとめて実行します。
 プラグインを追加すると設定なしで一覧に出ます。
 
+### Sessions
+
+| 機能 | 内容 |
+|---|---|
+| **Open** | 起動中・停止中のセッションを一覧し、新しいターミナルウィンドウで開く |
+| **Manage** | 起動中を Stop、停止中を Delete（どちらも確認あり） |
+| **Resume** | Claude Code / Codex の過去の会話を**全件まとめて**一覧して再開。`Tab` で片方に絞れる |
+| **Alfred** | 同じ一覧を Alfred の Script Filter として出し、選ぶと開く |
+
+停止中のセッションも中身の要約付きで出ます。絞り込みは **Workspace 名にも当たります。**
+
+`herdr session attach` は実行したターミナルを乗っ取り、かつ Herdr は自分の Pane の中で
+自分を起動することを既定で拒否するため（`nested herdr is disabled by default`）、
+**今いるセッションの中には開けません。** 外側のターミナルの新しいウィンドウで開きます。
+
+一方 Claude Code / Codex の会話は `claude --resume` を撃つだけなので、
+**今いるセッションの中**で再開します。`Enter` で新しい Workspace、
+`Shift+Enter` で新しい Tab、`Opt+Enter` で今の Pane を分割します。
+
 ---
 
 ## インストール
@@ -59,7 +79,7 @@ Pane / Agent / Tab / Workspace を横断 fuzzy 検索して Focus を移すだ�
 git clone <this repo> ~/src/herdr-plugins
 cd ~/src/herdr-plugins
 
-for p in herdr-pane-manager herdr-layout-tools herdr-navigator herdr-command-palette; do
+for p in herdr-pane-manager herdr-layout-tools herdr-navigator herdr-command-palette herdr-sessions; do
   (cd "$p" && cargo build --release)
   herdr plugin link "$PWD/$p"
 done
@@ -82,7 +102,13 @@ height = "70%"
 ```
 
 反映は `herdr server reload-config`、または `prefix+shift+r`。
-残り3つのキーは各プラグインの README を参照してください。
+残り4つのキーは各プラグインの README を参照してください。
+
+Alfred 連携を使う場合は追加で:
+
+```bash
+herdr-sessions/target/release/herdr-sessions alfred install
+```
 
 ---
 

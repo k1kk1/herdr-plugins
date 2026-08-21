@@ -116,7 +116,7 @@ pub struct Workspace {
 /// This carries `state_change_seq`, which `pane.list` does not: a counter that
 /// increases every time an agent changes state. It gives Gather a stable,
 /// meaningful order within a status group — most recently changed first.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct Agent {
     pub pane_id: String,
     pub tab_id: String,
@@ -127,6 +127,12 @@ pub struct Agent {
     pub agent_status: AgentStatus,
     #[serde(default)]
     pub state_change_seq: u64,
+    #[serde(default)]
+    pub cwd: Option<String>,
+    /// The agent's own heading with its state glyph removed — for Claude
+    /// Code this is the title it generates for the conversation.
+    #[serde(default)]
+    pub terminal_title_stripped: Option<String>,
 }
 
 /// Result payload of `pane.move`.

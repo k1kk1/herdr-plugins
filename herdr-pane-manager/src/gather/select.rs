@@ -104,6 +104,7 @@ mod tests {
             agent: Some(kind.into()),
             agent_status: status,
             state_change_seq: seq,
+            ..Default::default()
         }
     }
 

@@ -48,7 +48,7 @@ herdr plugin link "$PWD"
 
 ```toml
 [[keys.command]]
-key = "prefix+alt+l"
+key = "prefix+shift+l"
 type = "popup"
 command = "~/src/herdr-plugins/herdr-layout-tools/target/release/herdr-layout-tools ui"
 width = "50%"
@@ -83,8 +83,8 @@ q / Esc  Cancel
 同じ Pane 数の別 Tab にも適用できます。
 
 ```
-prefix+alt+l  →  s  →  名前を入力  →  Enter
-prefix+alt+l  →  保存済み一覧から選ぶ
+prefix+shift+l  →  s  →  名前を入力  →  Enter
+prefix+shift+l  →  保存済み一覧から選ぶ
 ```
 
 ```bash

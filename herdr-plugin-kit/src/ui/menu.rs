@@ -37,6 +37,11 @@ pub struct Menu<T> {
     filter: Option<String>,
     /// Number the first nine selectable rows on screen.
     numbered: bool,
+    /// Keys that take the highlighted row just as Enter does. The caller
+    /// distinguishes them afterwards with [`Menu::accepted_with`].
+    accept_also: Vec<Key>,
+    /// Which key actually took the row that `run` returned.
+    accepted_with: Key,
 }
 
 impl<T: Clone> Menu<T> {
@@ -48,7 +53,26 @@ impl<T: Clone> Menu<T> {
             pinned: Vec::new(),
             filter: None,
             numbered: false,
+            accept_also: Vec::new(),
+            accepted_with: Key::Enter,
         }
+    }
+
+    /// Let `keys` accept the highlighted row in addition to Enter.
+    ///
+    /// Used for offering variants of one action — resume *here* versus resume
+    /// *there* — without a second menu in the way. Every variant must remain
+    /// reachable some other way, because a terminal that cannot report
+    /// modified Enter will deliver all of them as plain Enter.
+    pub fn accept_also(mut self, keys: &[Key]) -> Self {
+        self.accept_also = keys.to_vec();
+        self
+    }
+
+    /// The key that took the row `run` returned. Enter unless one of
+    /// [`Menu::accept_also`] was pressed.
+    pub fn accepted_with(&self) -> Key {
+        self.accepted_with
     }
 
     pub fn subtitle(mut self, text: impl Into<String>) -> Self {
@@ -58,6 +82,12 @@ impl<T: Clone> Menu<T> {
 
     pub fn footer(mut self, text: impl Into<String>) -> Self {
         self.view = self.view.footer(text);
+        self
+    }
+
+    /// Show a tab strip under the subtitle.
+    pub fn tabs(mut self, tabs: Vec<super::term::Chip>) -> Self {
+        self.view = self.view.tabs(tabs);
         self
     }
 
@@ -281,15 +311,20 @@ impl<T: Clone> Menu<T> {
                 }
             };
 
+            // Checked before the match so an accepting key is recognised
+            // whatever its shape, rather than needing an arm per variant.
+            if key == Key::Enter || self.accept_also.contains(&key) {
+                if let Some(index) = selectable.get(cursor) {
+                    self.accepted_with = key;
+                    return Ok(self.values[*index].clone());
+                }
+                continue;
+            }
+
             match key {
                 Key::Esc | Key::Interrupt => return Ok(None),
                 Key::Up => step(&mut cursor, -1),
                 Key::Down => step(&mut cursor, 1),
-                Key::Enter => {
-                    if let Some(index) = selectable.get(cursor) {
-                        return Ok(self.values[*index].clone());
-                    }
-                }
                 Key::Backspace => {
                     if let Some(query) = self.filter.as_mut() {
                         query.pop();
@@ -332,7 +367,14 @@ impl<T: Clone> Menu<T> {
                         },
                     }
                 }
-                Key::Tab | Key::Other => {}
+                // Enter is handled above; a modified Enter the caller did not
+                // ask for falls through as a key with no meaning here.
+                Key::Enter
+                | Key::ShiftEnter
+                | Key::AltEnter
+                | Key::Tab
+                | Key::BackTab
+                | Key::Other => {}
             }
         }
     }

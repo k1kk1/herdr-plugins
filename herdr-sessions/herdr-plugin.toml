@@ -1,0 +1,53 @@
+id = "sessions"
+name = "Sessions"
+version = "0.1.0"
+min_herdr_version = "0.8.0"
+description = "List every Herdr session, running and stopped, and open one"
+platforms = ["macos", "linux"]
+
+[[build]]
+command = ["cargo", "build", "--release"]
+
+[[panes]]
+id = "sessions"
+title = "Sessions"
+description = "Open a Herdr session"
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-sessions" ui']
+placement = "popup"
+width = "70%"
+height = "60%"
+
+[[actions]]
+id = "open"
+title = "Open Session..."
+description = "List every session, running and stopped, and open one in a new window"
+contexts = ["global"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-sessions" launch open']
+
+[[actions]]
+id = "manage"
+title = "Manage Sessions..."
+description = "Stop a running session, or delete a stopped one"
+contexts = ["global"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-sessions" launch manage']
+
+[[actions]]
+id = "resume"
+title = "Resume Conversation..."
+description = "List past Claude Code and Codex conversations and resume one in this session"
+contexts = ["global", "pane"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-sessions" launch all']
+
+[[actions]]
+id = "claude"
+title = "Resume Claude Code Session..."
+description = "List recent Claude Code conversations and resume one in this session"
+contexts = ["global", "pane"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-sessions" launch claude']
+
+[[actions]]
+id = "codex"
+title = "Resume Codex Session..."
+description = "List recent Codex conversations and resume one in this session"
+contexts = ["global", "pane"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-sessions" launch codex']

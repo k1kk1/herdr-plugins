@@ -1,0 +1,429 @@
+//! Alfred integration.
+//!
+//! Two halves that meet in the middle:
+//!
+//! * `herdr-sessions alfred` prints the session list as Alfred Script Filter
+//!   JSON, so Alfred can show it in its own window.
+//! * `herdr-sessions alfred install` writes a workflow that calls the above
+//!   and hands the chosen name back to `herdr-sessions open`.
+//!
+//! Opening is the same code path the plugin picker uses ([`crate::open`]), so
+//! a session opened from Alfred and one opened from inside Herdr land in the
+//! same kind of window.
+//!
+//! ## Absolute paths everywhere
+//!
+//! Alfred runs workflow scripts with a login-shell `PATH` at best and
+//! `/usr/bin:/bin:/usr/sbin:/sbin` at worst — Homebrew's `bin` is often not on
+//! it. So the workflow is generated with this binary's absolute path baked in,
+//! and with `HERDR_BIN_PATH` exported, rather than trusting either to be found
+//! by name.
+
+use std::io::Read;
+use std::path::{Path, PathBuf};
+
+use herdr_plugin_kit::{bail, Context, Result};
+use serde_json::{json, Value};
+
+use crate::open::Config;
+use crate::session::{self, Detail, Session};
+
+/// Alfred's own filtering is used, so every session is emitted every time and
+/// the `match` field carries the extra words worth typing.
+pub fn script_filter(config: &Config) -> Result<String> {
+    let sessions = session::list()?;
+    let items: Vec<Value> = sessions.iter().map(|s| item(config, s)).collect();
+
+    let payload = if items.is_empty() {
+        json!({ "items": [{
+            "title": "No Herdr sessions",
+            "subtitle": "Run `herdr --session <name>` to make one",
+            "valid": false,
+        }]})
+    } else {
+        json!({ "items": items })
+    };
+    Ok(payload.to_string())
+}
+
+fn item(config: &Config, session: &Session) -> Value {
+    let detail = session::detail(session);
+    let mut item = json!({
+        "uid": format!("herdr-session:{}", session.name),
+        "title": session.name,
+        "subtitle": subtitle(session, &detail),
+        "arg": session.name,
+        "match": matchable(session, &detail),
+        "valid": true,
+        "text": { "copy": format!("herdr session attach {}", session.name) },
+    });
+
+    // The one case where opening is not what the user wants: they are already
+    // in it. Alfred shows the row but refuses to action it.
+    if session.is_current() {
+        item["valid"] = json!(false);
+        item["subtitle"] = json!(format!(
+            "{} — you are in this session",
+            subtitle(session, &detail)
+        ));
+    }
+
+    // Warn rather than fail: the row is still worth showing, and the error
+    // shows up when the command actually runs.
+    if let Err(err) = crate::open::command_for(config, &session.name) {
+        item["valid"] = json!(false);
+        item["subtitle"] = json!(err.to_string().lines().next().unwrap_or("cannot open"));
+    }
+    item
+}
+
+fn subtitle(session: &Session, detail: &Detail) -> String {
+    let mut parts = vec![session.state().to_string()];
+    if session.default {
+        parts.push("default".into());
+    }
+    if !session.running {
+        if let Some(time) = detail.last_used {
+            parts.push(format!("last used {}", session::ago(time)));
+        }
+    }
+    parts.push(detail.summary());
+    if let Some(names) = detail.names_line() {
+        parts.push(names);
+    }
+    parts.join(" · ")
+}
+
+/// Extra words Alfred should match on, so "recipes" finds the session that
+/// holds the Agent Recipes workspace.
+fn matchable(session: &Session, detail: &Detail) -> String {
+    let mut words = vec![session.name.clone(), session.state().to_string()];
+    words.extend(detail.names.iter().cloned());
+    words.join(" ")
+}
+
+// ---------------------------------------------------------------------------
+// Installing the workflow
+// ---------------------------------------------------------------------------
+
+const KEYWORD: &str = "hs";
+
+fn workflows_dir() -> Result<PathBuf> {
+    let home = std::env::var_os("HOME").context("HOME is not set")?;
+    let dir = PathBuf::from(home)
+        .join("Library/Application Support/Alfred/Alfred.alfredpreferences/workflows");
+    if !dir.is_dir() {
+        bail!(
+            "Alfred's workflow folder is not where it should be:\n  {}\n\
+             Is Alfred installed, and are its preferences in the default place?",
+            dir.display()
+        );
+    }
+    Ok(dir)
+}
+
+/// Write the workflow into Alfred's preferences. Alfred picks it up without a
+/// restart.
+///
+/// Refuses to clobber an existing copy unless `force`, because the user may
+/// have edited the keyword or hung more actions off it.
+pub fn install(force: bool) -> Result<PathBuf> {
+    let dir = workflows_dir()?;
+    let target = existing(&dir)?.unwrap_or_else(|| dir.join(format!("user.workflow.{}", uuid())));
+
+    if target.exists() && !force {
+        bail!(
+            "A Herdr Sessions workflow is already installed:\n  {}\n\
+             Re-run with --force to overwrite it.",
+            target.display()
+        );
+    }
+
+    std::fs::create_dir_all(&target)
+        .with_context(|| format!("could not create {}", target.display()))?;
+    let plist = info_plist()?;
+    let path = target.join("info.plist");
+    std::fs::write(&path, plist).with_context(|| format!("could not write {}", path.display()))?;
+    Ok(target)
+}
+
+/// An already-installed copy, found by its bundle id rather than by folder
+/// name, which Alfred randomises.
+fn existing(dir: &Path) -> Result<Option<PathBuf>> {
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let plist = entry.path().join("info.plist");
+        let Ok(mut file) = std::fs::File::open(&plist) else {
+            continue;
+        };
+        let mut contents = String::new();
+        if file.read_to_string(&mut contents).is_err() {
+            continue;
+        }
+        if contents.contains(BUNDLE_ID) {
+            return Ok(Some(entry.path()));
+        }
+    }
+    Ok(None)
+}
+
+const BUNDLE_ID: &str = "dev.herdr.plugins.sessions";
+
+/// This binary's absolute path, for baking into the workflow.
+fn self_path() -> Result<String> {
+    let path = std::env::current_exe().context("could not find this binary's own path")?;
+    Ok(path.display().to_string())
+}
+
+fn info_plist() -> Result<String> {
+    let me = self_path()?;
+    let herdr = session::herdr_bin();
+    let filter_uid = uuid();
+    let action_uid = uuid();
+
+    // Built from raw paths and escaped once, at the end. `{:?}` quotes them
+    // for the shell; `xml` quotes the result for the plist.
+    let list_script = xml(&format!(
+        "export HERDR_BIN_PATH={herdr:?}\nexec {me:?} alfred\n"
+    ));
+    let open_script = xml(&format!(
+        "export HERDR_BIN_PATH={herdr:?}\nexec {me:?} open \"$1\"\n"
+    ));
+
+    Ok(format!(
+        r##"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>bundleid</key>
+	<string>{BUNDLE_ID}</string>
+	<key>category</key>
+	<string>Tools</string>
+	<key>connections</key>
+	<dict>
+		<key>{filter_uid}</key>
+		<array>
+			<dict>
+				<key>destinationuid</key>
+				<string>{action_uid}</string>
+				<key>modifiers</key>
+				<integer>0</integer>
+				<key>modifiersubtext</key>
+				<string></string>
+				<key>vitoclose</key>
+				<false/>
+			</dict>
+		</array>
+	</dict>
+	<key>createdby</key>
+	<string>herdr-sessions</string>
+	<key>description</key>
+	<string>List Herdr sessions and open one in a new terminal window.</string>
+	<key>disabled</key>
+	<false/>
+	<key>name</key>
+	<string>Herdr Sessions</string>
+	<key>objects</key>
+	<array>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>alfredfiltersresults</key>
+				<true/>
+				<key>alfredfiltersresultsmatchmode</key>
+				<integer>0</integer>
+				<key>argumenttreatemptyqueryasnil</key>
+				<true/>
+				<key>argumenttrimmode</key>
+				<integer>0</integer>
+				<key>argumenttype</key>
+				<integer>1</integer>
+				<key>escaping</key>
+				<integer>102</integer>
+				<key>keyword</key>
+				<string>{KEYWORD}</string>
+				<key>queuedelaycustom</key>
+				<integer>3</integer>
+				<key>queuedelayimmediatesinitial</key>
+				<true/>
+				<key>queuedelaymode</key>
+				<integer>0</integer>
+				<key>queuemode</key>
+				<integer>1</integer>
+				<key>runningsubtext</key>
+				<string>Reading sessions...</string>
+				<key>script</key>
+				<string>{list_script}</string>
+				<key>scriptargtype</key>
+				<integer>0</integer>
+				<key>scriptfile</key>
+				<string></string>
+				<key>subtext</key>
+				<string>Open a Herdr session in a new window</string>
+				<key>title</key>
+				<string>Herdr Sessions</string>
+				<key>type</key>
+				<integer>0</integer>
+				<key>withspace</key>
+				<true/>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.input.scriptfilter</string>
+			<key>uid</key>
+			<string>{filter_uid}</string>
+			<key>version</key>
+			<integer>3</integer>
+		</dict>
+		<dict>
+			<key>config</key>
+			<dict>
+				<key>concurrently</key>
+				<false/>
+				<key>escaping</key>
+				<integer>102</integer>
+				<key>script</key>
+				<string>{open_script}</string>
+				<key>scriptargtype</key>
+				<integer>0</integer>
+				<key>scriptfile</key>
+				<string></string>
+				<key>type</key>
+				<integer>0</integer>
+			</dict>
+			<key>type</key>
+			<string>alfred.workflow.action.script</string>
+			<key>uid</key>
+			<string>{action_uid}</string>
+			<key>version</key>
+			<integer>2</integer>
+		</dict>
+	</array>
+	<key>readme</key>
+	<string>Type `{KEYWORD}` in Alfred to list every Herdr session, running and stopped, and press Enter to open one in a new terminal window.
+
+Generated by `herdr-sessions alfred install`. Re-run it after moving the plugin, so the baked-in paths stay right.</string>
+	<key>uidata</key>
+	<dict>
+		<key>{filter_uid}</key>
+		<dict>
+			<key>xpos</key>
+			<real>60</real>
+			<key>ypos</key>
+			<real>60</real>
+		</dict>
+		<key>{action_uid}</key>
+		<dict>
+			<key>xpos</key>
+			<real>320</real>
+			<key>ypos</key>
+			<real>60</real>
+		</dict>
+	</dict>
+	<key>userconfigurationconfig</key>
+	<array/>
+	<key>version</key>
+	<string>{version}</string>
+	<key>webaddress</key>
+	<string></string>
+</dict>
+</plist>
+"##,
+        version = env!("CARGO_PKG_VERSION"),
+    ))
+}
+
+/// Escape text for a plist `<string>`.
+fn xml(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+/// A version-4-shaped UUID from the system RNG.
+///
+/// Alfred only needs these to be unique within the file, so pulling 16 bytes
+/// from `/dev/urandom` beats taking a dependency.
+fn uuid() -> String {
+    let mut bytes = [0u8; 16];
+    if let Ok(mut file) = std::fs::File::open("/dev/urandom") {
+        let _ = file.read_exact(&mut bytes);
+    }
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    let hex: String = bytes.iter().map(|b| format!("{b:02X}")).collect();
+    format!(
+        "{}-{}-{}-{}-{}",
+        &hex[0..8],
+        &hex[8..12],
+        &hex[12..16],
+        &hex[16..20],
+        &hex[20..32]
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn session(name: &str, running: bool) -> Session {
+        Session {
+            name: name.into(),
+            running,
+            default: false,
+            session_dir: None,
+            socket_path: None,
+        }
+    }
+
+    #[test]
+    fn a_subtitle_leads_with_the_state() {
+        let detail = Detail {
+            workspaces: 2,
+            panes: 4,
+            ..Default::default()
+        };
+        let line = subtitle(&session("work", true), &detail);
+        assert!(line.starts_with("running · "), "{line}");
+        assert!(line.contains("2 workspaces"), "{line}");
+    }
+
+    #[test]
+    fn workspace_names_are_matchable_so_you_can_find_a_session_by_what_is_in_it() {
+        let detail = Detail {
+            names: vec!["Agent Recipes".into()],
+            ..Default::default()
+        };
+        let words = matchable(&session("work", true), &detail);
+        assert!(words.contains("Agent Recipes"), "{words}");
+        assert!(words.contains("work"), "{words}");
+    }
+
+    #[test]
+    fn uuids_are_shaped_the_way_alfred_writes_them() {
+        let id = uuid();
+        assert_eq!(id.len(), 36);
+        assert_eq!(
+            id.split('-').map(str::len).collect::<Vec<_>>(),
+            [8, 4, 4, 4, 12]
+        );
+        assert_ne!(uuid(), id);
+    }
+
+    #[test]
+    fn the_generated_plist_parses_and_carries_both_scripts() {
+        let plist = info_plist().unwrap();
+        assert!(plist.contains(BUNDLE_ID));
+        assert!(plist.contains("alfred.workflow.input.scriptfilter"));
+        assert!(plist.contains("alfred.workflow.action.script"));
+        // Alfred runs these with a bare PATH, so both halves must name the
+        // binary by absolute path rather than by name.
+        let me = self_path().unwrap();
+        assert!(me.starts_with('/'), "{me}");
+        assert_eq!(plist.matches(&me).count(), 2, "both scripts must name it");
+    }
+
+    #[test]
+    fn plist_text_is_escaped() {
+        assert_eq!(xml("a & b <c>"), "a &amp; b &lt;c&gt;");
+    }
+}
