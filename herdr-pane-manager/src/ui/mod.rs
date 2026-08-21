@@ -10,7 +10,7 @@ use herdr_plugin_kit::context;
 use herdr_plugin_kit::herdr::{Herdr, Pane, Workspace};
 use herdr_plugin_kit::label;
 use herdr_plugin_kit::layout::{Ratio, Shape, Side};
-use herdr_plugin_kit::ui::{Menu, Row, Term};
+use herdr_plugin_kit::ui::{Key, Menu, Row, Term};
 use herdr_plugin_kit::{bail, Outcome, Result};
 
 use crate::config::Config;
@@ -37,6 +37,8 @@ enum Choice {
     Extract,
     Merge,
     QuickMove(usize),
+    /// The same tab, but stopping to ask side, size and which pane to split.
+    DetailedMove(usize),
     Gather,
     Restore,
     Undo,
@@ -126,7 +128,9 @@ fn manager(
     config_warning: Option<String>,
 ) -> Result<Option<Outcome>> {
     let mut menu = Menu::new("Pane Manager")
-        .subtitle(source_line(snapshot, config));
+        .subtitle(source_line(snapshot, config))
+        // Quick rows take Shift+Enter as "the same tab, but ask me where".
+        .accept_also(&[Key::ShiftEnter]);
 
     // Quick Move first: it is the fastest path, and the reason to open this
     // at all (addendum §2).
@@ -146,7 +150,11 @@ fn manager(
         .collect();
 
     if !quick.is_empty() {
-        menu.row(Row::header("Quick move current pane to"));
+        menu.row(Row::header(if term.distinguishes_modified_enter() {
+            "Quick move current pane to  ·  Shift+Enter で位置を指定"
+        } else {
+            "Quick move current pane to"
+        }));
         for (position, name, shape, contents, diagram) in quick {
             menu.item(
                 Row::item(name)
@@ -226,6 +234,13 @@ fn manager(
         return Ok(None);
     };
 
+    // Shift+Enter on a quick row means "that tab, but let me say where".
+    // The plain key stays the fast path it has always been.
+    let choice = match (choice, menu.accepted_with()) {
+        (Choice::QuickMove(position), Key::ShiftEnter) => Choice::DetailedMove(position),
+        (choice, _) => choice,
+    };
+
     match choice {
         Choice::Cancel => Ok(None),
         Choice::Undo => undo::undo(herdr).map(Some),
@@ -250,6 +265,13 @@ fn manager(
                 preserve_layout: false,
             },
         ),
+        Choice::DetailedMove(position) => {
+            let Some(tab) = snapshot.tab_at(position) else {
+                bail!("This workspace has no tab {position}.");
+            };
+            let tab_id = tab.tab.tab_id.clone();
+            detailed_move_into(term, herdr, snapshot, config, &tab_id)
+        }
         // Quick Move never asks anything further (addendum §2).
         Choice::QuickMove(position) => {
             let Some(tab) = snapshot.tab_at(position) else {
@@ -353,6 +375,59 @@ enum Pick {
 }
 
 /// Move picker (spec §9.3, addendum §4, §5).
+/// Move the current pane into a named tab, asking everything the settings
+/// leave open — which pane to split, which side, how much space.
+///
+/// The tail of [`move_flow`] once a destination is known, reached instead by
+/// holding Shift on a quick row: the same tab, deliberately rather than fast.
+fn detailed_move_into(
+    term: &mut Term,
+    herdr: &Herdr,
+    snapshot: &Snapshot,
+    config: &Config,
+    tab_id: &str,
+) -> Result<Option<Outcome>> {
+    let target_pane = match choose_target_pane(term, snapshot, tab_id, config)? {
+        Some(target) => target,
+        None => return Ok(None),
+    };
+
+    let tab = snapshot.tab(tab_id);
+    let anchor = target_pane
+        .clone()
+        .or_else(|| tab.and_then(|t| t.panes.first().map(|p| p.pane_id.clone())));
+    let lone;
+    let preview = match (tab.and_then(|t| t.shape.as_ref()), anchor.as_deref()) {
+        (Some(shape), Some(anchor)) => Some((shape, anchor)),
+        (None, Some(anchor)) => {
+            lone = Some(Shape::pane(anchor));
+            lone.as_ref().map(|shape| (shape, anchor))
+        }
+        _ => None,
+    };
+
+    let Some(placement) = ask_placement(term, config, "Move current pane", preview)? else {
+        return Ok(None);
+    };
+
+    run_request(
+        herdr,
+        snapshot,
+        config,
+        Request {
+            verb: Verb::Move,
+            source_pane: snapshot.source.pane_id.clone(),
+            source_tab: None,
+            destination: Destination::Tab {
+                tab_id: tab_id.to_string(),
+                target_pane,
+            },
+            placement,
+            preserve_layout: false,
+        },
+    )
+}
+
 fn move_flow(
     term: &mut Term,
     herdr: &Herdr,
