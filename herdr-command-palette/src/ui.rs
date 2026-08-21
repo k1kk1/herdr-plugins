@@ -74,7 +74,7 @@ fn pick(
 
     let mut menu = Menu::new("Command Palette")
         .subtitle(subtitle)
-        .footer("type to filter · 1-9 run · ↑↓ move · Enter run · Esc cancel")
+        .enter("run")
         .filterable()
         .numbered();
 

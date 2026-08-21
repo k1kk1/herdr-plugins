@@ -37,6 +37,12 @@ pub struct Menu<T> {
     filter: Option<String>,
     /// Number the first nine selectable rows on screen.
     numbered: bool,
+    /// What Enter does, for the key line. One word, imperative.
+    enter: &'static str,
+    /// Replaces "type to filter" when typing means something else.
+    prompt: Option<&'static str>,
+    /// What Tab does, when it does anything.
+    tab: Option<&'static str>,
     /// Keys that take the highlighted row just as Enter does. The caller
     /// distinguishes them afterwards with [`Menu::accepted_with`].
     accept_also: Vec<Key>,
@@ -53,6 +59,9 @@ impl<T: Clone> Menu<T> {
             pinned: Vec::new(),
             filter: None,
             numbered: false,
+            enter: "select",
+            prompt: None,
+            tab: None,
             accept_also: Vec::new(),
             accepted_with: Key::Enter,
         }
@@ -80,9 +89,60 @@ impl<T: Clone> Menu<T> {
         self
     }
 
+    /// Override the generated key line. Prefer [`Menu::enter`] and
+    /// [`Menu::tab`]; this is for the few screens that are not really menus.
     pub fn footer(mut self, text: impl Into<String>) -> Self {
         self.view = self.view.footer(text);
         self
+    }
+
+    /// The verb for Enter: `open`, `jump`, `run`. One word, imperative.
+    pub fn enter(mut self, verb: &'static str) -> Self {
+        self.enter = verb;
+        self
+    }
+
+    /// What typing does, when it is not filtering — naming a thing, say.
+    pub fn prompt(mut self, what: &'static str) -> Self {
+        self.prompt = Some(what);
+        self
+    }
+
+    /// What Tab switches, when the caller handles Tab.
+    pub fn tab(mut self, what: &'static str) -> Self {
+        self.tab = Some(what);
+        self
+    }
+
+    /// The key line, assembled from what this menu actually does.
+    ///
+    /// Generated rather than written per screen, because written ones drift:
+    /// six pickers had four different words for Enter, `1-9` on either side of
+    /// `↑↓`, and `q` advertised on some screens that took it and not on others.
+    ///
+    /// Per-row hotkeys are deliberately absent — they are already printed in
+    /// the gutter beside the rows they belong to, and repeating them here is
+    /// the kind of noise that makes a key line not worth reading.
+    fn key_line(&self) -> String {
+        let mut parts = Vec::new();
+        if self.filter.is_some() {
+            parts.push(self.prompt.unwrap_or("type to filter").to_string());
+        }
+        if self.numbered {
+            parts.push("1-9 pick".to_string());
+        }
+        parts.push("↑↓ move".to_string());
+        parts.push(format!("Enter {}", self.enter));
+        if let Some(what) = self.tab {
+            parts.push(format!("Tab {what}"));
+        }
+        // `q` quits only when it is not being typed into a filter.
+        parts.push(if self.filter.is_some() {
+            "Esc cancel".to_string()
+        } else {
+            "q / Esc cancel".to_string()
+        });
+        parts.join(" · ")
     }
 
     /// Show a tab strip under the subtitle.
@@ -251,6 +311,9 @@ impl<T: Clone> Menu<T> {
         term: &mut Term,
         mut extra: impl FnMut(Key) -> Interrupt,
     ) -> Result<Option<T>> {
+        if self.view.footer.is_none() {
+            self.view.footer = Some(self.key_line());
+        }
         let all_rows = std::mem::take(&mut self.view.rows);
         let mut cursor = 0usize;
 
@@ -404,6 +467,44 @@ fn subsequence(query: &str, haystack: &str) -> bool {
         .chars()
         .filter(|c| !c.is_whitespace())
         .all(|needle| chars.any(|c| c == needle))
+}
+
+#[cfg(test)]
+mod key_line_tests {
+    use super::*;
+
+    fn menu() -> Menu<()> {
+        Menu::new("t")
+    }
+
+    #[test]
+    fn the_key_line_lists_only_what_the_menu_does() {
+        let plain = menu().key_line();
+        assert_eq!(plain, "↑↓ move · Enter select · q / Esc cancel");
+
+        let full = menu().filterable().numbered().enter("open").tab("mode").key_line();
+        assert_eq!(
+            full,
+            "type to filter · 1-9 pick · ↑↓ move · Enter open · Tab mode · Esc cancel"
+        );
+    }
+
+    #[test]
+    fn q_is_offered_exactly_when_it_is_not_swallowed_by_the_filter() {
+        assert!(menu().key_line().contains("q / Esc"));
+        assert!(!menu().filterable().key_line().contains("q /"));
+    }
+
+    #[test]
+    fn the_pieces_always_come_in_the_same_order() {
+        let line = menu().filterable().numbered().tab("scope").key_line();
+        let at = |needle: &str| line.find(needle).expect(needle);
+        assert!(at("type to filter") < at("1-9"));
+        assert!(at("1-9") < at("↑↓"));
+        assert!(at("↑↓") < at("Enter"));
+        assert!(at("Enter") < at("Tab"));
+        assert!(at("Tab") < at("Esc"));
+    }
 }
 
 #[cfg(test)]

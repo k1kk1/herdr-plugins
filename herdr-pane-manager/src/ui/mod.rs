@@ -81,8 +81,7 @@ pub fn run(herdr: &Herdr, entry: Entry, source_pane: Pane) -> Result<Option<Outc
 /// Show a failure and ask whether to try again with fresh state.
 fn retry(term: &mut Term, err: &anyhow::Error) -> Result<bool> {
     let mut menu = Menu::new("Pane Manager")
-        .subtitle("Nothing was left half-done.")
-        .footer("r retry · q / Esc close");
+        .subtitle("Nothing was left half-done.");
     for line in err.to_string().lines() {
         menu.row(Row::note(line.to_string()));
     }
@@ -127,8 +126,7 @@ fn manager(
     config_warning: Option<String>,
 ) -> Result<Option<Outcome>> {
     let mut menu = Menu::new("Pane Manager")
-        .subtitle(source_line(snapshot, config))
-        .footer("↑↓ move · 1-9 quick move · Enter select · q / Esc cancel");
+        .subtitle(source_line(snapshot, config));
 
     // Quick Move first: it is the fastest path, and the reason to open this
     // at all (addendum §2).
@@ -301,8 +299,7 @@ fn gather_flow(term: &mut Term, herdr: &Herdr, config: &Config) -> Result<Option
             "{} · {}",
             config.gather.status_summary(),
             default_scope.label()
-        ))
-        .footer("2-4 panes per tab · w / a scope · Esc cancel");
+        ));
 
     for per_tab in PanesPerTab::ALL {
         let size = per_tab.get();
@@ -491,7 +488,6 @@ fn swap_flow(
 ) -> Result<Option<Outcome>> {
     let mut menu = Menu::new("Swap current pane with")
         .subtitle(source_line(snapshot, config))
-        .footer("type to filter · ↑↓ move · 1-9 pick · Enter select · Esc cancel")
         .filterable();
 
     let candidates = snapshot.swap_candidates();
@@ -549,7 +545,6 @@ fn destination_menu(
 ) -> Menu<Pick> {
     let mut menu = Menu::new(title)
         .subtitle(subtitle)
-        .footer("type to filter · ↑↓ move · 1-9 pick · Enter select · Esc cancel")
         .filterable();
 
     if destinations.is_empty() && !offer_new {
@@ -605,8 +600,7 @@ fn choose_target_pane(
     };
 
     let mut menu = Menu::new("Split which pane?")
-        .subtitle(label::tab_display(&tab.tab, tab.position))
-        .footer("↑↓ / j k move · Enter select · Esc cancel");
+        .subtitle(label::tab_display(&tab.tab, tab.position));
 
     menu.item(
         Row::item("Auto")
@@ -632,8 +626,7 @@ fn ask_placement(term: &mut Term, config: &Config, context: &str) -> Result<Opti
         Some(side) => side,
         None => {
             let mut menu = Menu::new("Place where?")
-                .subtitle(context.to_string())
-                .footer("h j k l or arrow keys · Esc cancel");
+                .subtitle(context.to_string());
             for side in Side::ALL {
                 menu.item(
                     Row::item(capitalize(side.as_str())).hotkey(side.hotkey().to_string()),
@@ -649,8 +642,7 @@ fn ask_placement(term: &mut Term, config: &Config, context: &str) -> Result<Opti
 
     let ratio = if config.ask_ratio() {
         let mut menu = Menu::new("How much space?")
-            .subtitle(context.to_string())
-            .footer("↑↓ move · Enter select · Esc cancel");
+            .subtitle(context.to_string());
         for (index, ratio) in Ratio::ALL.iter().enumerate() {
             menu.item(
                 Row::item(ratio.label())
@@ -671,7 +663,7 @@ fn ask_placement(term: &mut Term, config: &Config, context: &str) -> Result<Opti
 }
 
 fn confirm(term: &mut Term, question: &str) -> Result<bool> {
-    let mut menu = Menu::new(question).footer("y / n · Esc cancel");
+    let mut menu = Menu::new(question).enter("confirm");
     menu.item(Row::item("Yes").hotkey("y"), true);
     menu.item(Row::item("No").hotkey("n"), false);
     Ok(menu.run(term)?.unwrap_or(false))

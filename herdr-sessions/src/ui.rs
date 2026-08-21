@@ -126,19 +126,31 @@ impl Mode {
         }
     }
 
-    /// The line under the title.
+    /// The verb for Enter on this list.
+    fn enter_verb(self) -> &'static str {
+        match self {
+            Mode::Open => "open",
+            Mode::Manage => "select",
+            Mode::Agents | Mode::Claude | Mode::Codex => "resume",
+        }
+    }
+
+    /// The line under the title: the keys that are not on the key line.
     ///
-    /// The facets themselves are drawn as a strip rather than described here;
-    /// this line only has to say what Enter does and what the other key is
-    /// for. Naming the facets in prose as well would say the same thing twice,
-    /// and the prose is the half nobody reads.
-    fn subtitle(self) -> String {
-        let what = match self {
-            Mode::Open => "Opens in a new terminal window",
-            Mode::Manage => "Stop or delete a session",
-            Mode::Agents | Mode::Claude | Mode::Codex => "Resumes here, not in a new window",
-        };
-        format!("{what} · Shift+Tab for {}", self.other_family().family())
+    /// Prose used to live here — "Resumes here, not in a new window" — which
+    /// is a sentence the reader has to parse to learn nothing they can act on.
+    /// The keys are what they need.
+    fn subtitle(self, modified_enter: bool) -> String {
+        let mut parts = Vec::new();
+        if self.lists_agents() {
+            parts.push("Enter workspace".to_string());
+            if modified_enter {
+                parts.push("Shift+Enter tab".to_string());
+            }
+            parts.push("Opt+Enter split".to_string());
+        }
+        parts.push(format!("Shift+Tab {}", self.other_family().family()));
+        parts.join(" · ")
     }
 
     /// The facet strip: every facet of this family, the current one marked.
@@ -274,9 +286,10 @@ impl Listing {
     /// The menu, whose value is the name (Herdr) or id (agent) of a row.
     fn menu(&self, mode: Mode, warning: Option<&str>, modified_enter: bool) -> Menu<String> {
         let mut menu = Menu::new(mode.title())
-            .subtitle(mode.subtitle())
+            .subtitle(mode.subtitle(modified_enter))
             .tabs(mode.chips())
-            .footer(footer(mode, modified_enter))
+            .enter(mode.enter_verb())
+            .tab("list")
             .filterable()
             .numbered();
 
@@ -323,24 +336,6 @@ impl Listing {
             }
         }
         menu
-    }
-}
-
-/// The key line at the bottom.
-///
-/// The agent modes spell out all three Enter keys, but only where the terminal
-/// can actually tell them apart — advertising Shift+Enter somewhere it arrives
-/// as plain Enter would be a lie the user only discovers by trying it.
-fn footer(mode: Mode, modified_enter: bool) -> String {
-    let common = "type to filter · 1-9 pick · ↑↓ move";
-    match (mode.lists_agents(), modified_enter) {
-        (true, true) => format!(
-            "{common} · Enter new workspace · Shift+Enter new tab · Opt+Enter split · Esc cancel"
-        ),
-        (true, false) => {
-            format!("{common} · Enter new workspace · Opt+Enter split · Esc cancel")
-        }
-        _ => format!("{common} · Enter choose · Esc cancel"),
     }
 }
 
@@ -437,8 +432,7 @@ fn open(term: &mut Term, config: &Config, session: &Session) -> Result<Option<Ou
 
 fn manage(term: &mut Term, session: &Session) -> Result<Option<Outcome>> {
     let mut menu: Menu<Action> = Menu::new(format!("Session `{}`", session.name))
-        .subtitle(session.state())
-        .footer("s / d · Esc back");
+        .subtitle(session.state());
 
     if session.running {
         menu.item(
@@ -509,7 +503,7 @@ fn cli(args: &[&str]) -> Result<()> {
 }
 
 fn confirm(term: &mut Term, question: &str) -> Result<bool> {
-    let mut menu = Menu::new(question).footer("y / n · Esc cancel");
+    let mut menu = Menu::new(question).enter("confirm");
     menu.item(Row::item("Yes").hotkey("y"), true);
     menu.item(Row::item("No").hotkey("n"), false);
     Ok(menu.run(term)?.unwrap_or(false))
@@ -598,9 +592,19 @@ mod tests {
     }
 
     #[test]
-    fn the_subtitle_points_at_the_other_family() {
-        assert!(Mode::Agents.subtitle().contains("Shift+Tab for herdr sessions"));
-        assert!(Mode::Open.subtitle().contains("Shift+Tab for conversations"));
+    fn the_subtitle_carries_the_keys_the_key_line_cannot() {
+        let agents = Mode::Agents.subtitle(true);
+        assert!(agents.contains("Enter workspace"), "{agents}");
+        assert!(agents.contains("Shift+Enter tab"), "{agents}");
+        assert!(agents.contains("Opt+Enter split"), "{agents}");
+        assert!(agents.contains("Shift+Tab herdr sessions"), "{agents}");
+
+        // A terminal that cannot report Shift+Enter must not be told about it.
+        assert!(!Mode::Agents.subtitle(false).contains("Shift+Enter"));
+
+        // The Herdr lists have no placement keys, only the family switch.
+        let open = Mode::Open.subtitle(true);
+        assert_eq!(open, "Shift+Tab conversations");
     }
 
     #[test]

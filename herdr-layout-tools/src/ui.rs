@@ -61,8 +61,7 @@ fn menu(
             tab.label.as_deref().unwrap_or("this tab"),
             panes.len(),
             if panes.len() == 1 { "" } else { "s" }
-        ))
-        .footer("↑↓ move · Enter select · q / Esc cancel");
+        ));
 
     menu.item(
         Row::item("Equalize")
@@ -168,7 +167,8 @@ fn ask_name(term: &mut Term) -> Result<Option<String>> {
     let existing = template::load();
     let mut menu: Menu<String> = Menu::new("Save this layout as")
         .subtitle("type a name, then Enter")
-        .footer("type a name · Enter save · Esc cancel")
+        .prompt("type a name")
+        .enter("save")
         .filterable();
 
     menu.item_pinned(Row::item("Save as {query}").hotkey("↵"), String::new());
@@ -199,7 +199,6 @@ fn ask_name(term: &mut Term) -> Result<Option<String>> {
 fn pick_saved(term: &mut Term) -> Result<Option<String>> {
     let saved = template::load();
     let mut menu: Menu<String> = Menu::new("Delete which saved layout?")
-        .footer("↑↓ move · Enter delete · q / Esc cancel")
         .numbered();
     for (name, layout) in &saved {
         menu.item(
