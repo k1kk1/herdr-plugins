@@ -9,7 +9,7 @@
 use herdr_plugin_kit::context;
 use herdr_plugin_kit::herdr::{Herdr, Pane, Workspace};
 use herdr_plugin_kit::label;
-use herdr_plugin_kit::layout::{Ratio, Side};
+use herdr_plugin_kit::layout::{Ratio, Shape, Side};
 use herdr_plugin_kit::ui::{Menu, Row, Term};
 use herdr_plugin_kit::{bail, Outcome, Result};
 
@@ -140,18 +140,20 @@ fn manager(
                 label::tab_display(&t.tab, t.position),
                 tab_shape(t),
                 tab_contents(t),
+                tab_diagram(t, Some(config.default_move_direction.resolve().unwrap_or(Side::Right))),
             )
         })
         .collect();
 
     if !quick.is_empty() {
         menu.row(Row::header("Quick move current pane to"));
-        for (position, name, shape, contents) in quick {
+        for (position, name, shape, contents, diagram) in quick {
             menu.item(
                 Row::item(name)
                     .hotkey(position.to_string())
                     .secondary(shape)
-                    .detail(Some(contents)),
+                    .detail(Some(contents))
+                    .extra(diagram),
                 Choice::QuickMove(position),
             );
         }
@@ -363,6 +365,9 @@ fn move_flow(
         snapshot.move_destinations(),
         snapshot,
         true,
+        // The side is settled before the list is shown, so the drawing can
+        // show the result rather than the starting point.
+        Some(config.default_move_direction.resolve().unwrap_or(Side::Right)),
     );
     let picked = menu.run(term)?;
     // Whatever was typed becomes the name of a newly created tab or
@@ -398,10 +403,28 @@ fn move_flow(
         },
     };
 
+    // Held outside the match so a shape built for a one-pane tab outlives the
+    // borrow the preview takes of it.
+    let lone;
     // Side and size only mean something when joining an existing tab.
     let (verb, placement) = match &destination {
-        Destination::Tab { .. } => {
-            let Some(placement) = ask_placement(term, config, "Move current pane")? else {
+        Destination::Tab { tab_id, target_pane } => {
+            // The preview needs the tab's real shape and the pane being split.
+            let target = snapshot.tab(tab_id);
+            let anchor = target_pane.clone().or_else(|| {
+                target.and_then(|t| t.panes.first().map(|p| p.pane_id.clone()))
+            });
+            let preview = match (target.and_then(|t| t.shape.as_ref()), anchor.as_deref()) {
+                (Some(shape), Some(anchor)) => Some((shape, anchor)),
+                // A one-pane tab has no stored shape; make the trivial one so
+                // the preview still works, which is the commonest case of all.
+                (None, Some(anchor)) => {
+                    lone = Some(Shape::pane(anchor));
+                    lone.as_ref().map(|shape| (shape, anchor))
+                }
+                _ => None,
+            };
+            let Some(placement) = ask_placement(term, config, "Move current pane", preview)? else {
                 return Ok(None);
             };
             (Verb::Move, placement)
@@ -447,6 +470,9 @@ fn merge_flow(
         snapshot,
         // Merging into a brand-new tab would only rename the current one.
         false,
+        // Folding brings a whole tab's worth of panes; there is no single
+        // rectangle to shade, so the drawing stays as it is today.
+        None,
     );
 
     let Some(Pick::Tab(destination)) = menu.run(term)? else {
@@ -457,7 +483,7 @@ fn merge_flow(
         return Ok(None);
     }
 
-    let Some(placement) = ask_placement(term, config, "Merge current tab")? else {
+    let Some(placement) = ask_placement(term, config, "Merge current tab", None)? else {
         return Ok(None);
     };
 
@@ -551,6 +577,35 @@ fn tab_shape(tab: &TabEntry) -> String {
     }
 }
 
+/// The destination tab drawn as a box, for the row under the cursor.
+///
+/// When `arriving` is set, the box shows the tab **after** the move, with the
+/// incoming pane shaded. The side is already decided by then — it comes from
+/// the settings, not from a later question — so there is nothing speculative
+/// about it: this is where the pane is going.
+fn tab_diagram(tab: &TabEntry, arriving: Option<Side>) -> Vec<String> {
+    let anchor = tab.panes.first().map(|p| p.pane_id.as_str());
+    let mut shape = match (&tab.shape, anchor) {
+        (Some(shape), _) => shape.clone(),
+        // A one-pane tab has no stored shape; the trivial one is still worth
+        // drawing, and is the commonest destination there is.
+        (None, Some(anchor)) => Shape::pane(anchor),
+        (None, None) => return Vec::new(),
+    };
+
+    match (arriving, anchor) {
+        (Some(side), Some(anchor)) => {
+            shape.split(anchor, ARRIVING, side);
+            shape.diagram_with(DIAGRAM.0, DIAGRAM.1, Some(ARRIVING))
+        }
+        _ => shape.diagram(DIAGRAM.0, DIAGRAM.1),
+    }
+}
+
+/// Stand-in id for the pane being placed. Starts with a control character so
+/// it cannot collide with a real pane id.
+const ARRIVING: &str = "\u{1}arriving";
+
 /// What is running in a destination tab.
 ///
 /// The shape says how the tab is divided; this says what is in it, which is
@@ -577,6 +632,7 @@ fn destination_menu(
     destinations: Vec<(&Workspace, &TabEntry)>,
     snapshot: &Snapshot,
     offer_new: bool,
+    arriving: Option<Side>,
 ) -> Menu<Pick> {
     let mut menu = Menu::new(title)
         .subtitle(subtitle)
@@ -599,7 +655,8 @@ fn destination_menu(
 
         let mut row = Row::item(label::tab_display(&tab.tab, tab.position))
             .secondary(tab_shape(tab))
-            .detail(Some(tab_contents(tab)));
+            .detail(Some(tab_contents(tab)))
+            .extra(tab_diagram(tab, arriving));
         // Quick-pick numbers only make sense inside the current workspace,
         // where they match the tab numbers the user already knows.
         if workspace.workspace_id == snapshot.workspace.workspace_id && tab.position <= 9 {
@@ -659,17 +716,39 @@ fn choose_target_pane(
 }
 
 /// Side and size, asked only when the settings leave them open (§4.1, §12).
-fn ask_placement(term: &mut Term, config: &Config, context: &str) -> Result<Option<Placement>> {
+/// The width and height every layout diagram is drawn at.
+const DIAGRAM: (usize, usize) = (12, 3);
+
+/// What the destination tab would look like with the pane added on `side`.
+///
+/// Built by applying the split to the tab's real shape, so the preview is the
+/// same computation the move itself will perform rather than a drawing that
+/// merely resembles it.
+fn placement_preview(shape: &Shape, target: &str, side: Side) -> Vec<String> {
+    const ARRIVING: &str = "\u{1}arriving";
+    let mut after = shape.clone();
+    after.split(target, ARRIVING, side);
+    after.diagram_with(DIAGRAM.0, DIAGRAM.1, Some(ARRIVING))
+}
+
+fn ask_placement(
+    term: &mut Term,
+    config: &Config,
+    context: &str,
+    preview: Option<(&Shape, &str)>,
+) -> Result<Option<Placement>> {
     let side = match config.default_move_direction.resolve() {
         Some(side) => side,
         None => {
             let mut menu = Menu::new("Which side?")
                 .subtitle(format!("{context} の、どちら側に置きますか"));
             for side in Side::ALL {
-                menu.item(
-                    Row::item(capitalize(side.as_str())).hotkey(side.hotkey().to_string()),
-                    side,
-                );
+                let mut row =
+                    Row::item(capitalize(side.as_str())).hotkey(side.hotkey().to_string());
+                if let Some((shape, target)) = preview {
+                    row = row.extra(placement_preview(shape, target, side));
+                }
+                menu.item(row, side);
             }
             match menu.run(term)? {
                 Some(side) => side,

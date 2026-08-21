@@ -322,14 +322,21 @@ impl<T: Clone> Menu<T> {
             let selectable = self.selectable(&visible);
             cursor = cursor.min(selectable.len().saturating_sub(1));
 
+            let under_cursor = selectable.get(cursor).copied();
             self.view.rows = visible
                 .iter()
                 .map(|i| {
-                    if self.pinned[*i] {
+                    let mut row = if self.pinned[*i] {
                         self.render_pinned(&all_rows[*i])
                     } else {
                         all_rows[*i].clone()
+                    };
+                    // Extra lines belong to the row being considered. Showing
+                    // every row's at once turns a list into a wall.
+                    if under_cursor != Some(*i) {
+                        row.extra.clear();
                     }
+                    row
                 })
                 .collect();
 

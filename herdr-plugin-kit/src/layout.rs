@@ -198,6 +198,29 @@ fn emit(node: &Shape, out: &mut Vec<Placement>) {
     emit(second, out);
 }
 
+/// Fill for the pane a diagram is pointing at.
+pub const HIGHLIGHT: char = '░';
+
+/// The box-drawing character for a corner, from the walls meeting there.
+fn junction(up: bool, down: bool, left: bool, right: bool) -> char {
+    match (up, down, left, right) {
+        (true, true, true, true) => '┼',
+        (true, true, true, false) => '┤',
+        (true, true, false, true) => '├',
+        (true, true, false, false) => '│',
+        (true, false, true, true) => '┴',
+        (true, false, true, false) => '┘',
+        (true, false, false, true) => '└',
+        (false, true, true, true) => '┬',
+        (false, true, true, false) => '┐',
+        (false, true, false, true) => '┌',
+        (false, false, true, true) => '─',
+        (true, false, false, false) | (false, true, false, false) => '│',
+        (false, false, true, false) | (false, false, false, true) => '─',
+        (false, false, false, false) => ' ',
+    }
+}
+
 /// A split tree, reduced to the parts that decide whether two layouts match.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Shape {
@@ -221,6 +244,169 @@ impl Shape {
     /// stay as light as possible.
     pub fn sketch(&self) -> String {
         self.draw(true)
+    }
+
+    /// A box diagram of the arrangement, one string per line.
+    ///
+    /// The sketch (`▫│[▫─▫]`) fits on a list row; this is what the tab
+    /// actually looks like, for the one row a reader is pointing at.
+    ///
+    /// The tree is rasterised into a grid of cells, and the walls are then
+    /// worked out as the *boundaries* between cells that belong to different
+    /// panes. Drawing walls inside cells instead is the obvious shortcut and
+    /// it produces wrong corners: a wall that starts halfway along a row has
+    /// no junction to hang from.
+    pub fn diagram(&self, width: usize, height: usize) -> Vec<String> {
+        self.diagram_with(width, height, None)
+    }
+
+    /// The diagram with one pane shaded, for showing where something lands.
+    ///
+    /// The shading glyph is what the renderer colours, so "which one is new"
+    /// survives even where colour does not — a printed diagram, a terminal
+    /// without it, a reader who cannot tell the two colours apart.
+    pub fn diagram_with(
+        &self,
+        width: usize,
+        height: usize,
+        highlight: Option<&str>,
+    ) -> Vec<String> {
+        let width = width.max(2);
+        let height = height.max(2);
+        let mut grid = vec![vec![0usize; width]; height];
+        let mut next = 0usize;
+        self.rasterise(&mut grid, 0, 0, width, height, &mut next);
+
+        // Which rasterised id the highlighted pane ended up as.
+        let marked = highlight.and_then(|id| {
+            let mut seen = 0usize;
+            self.find(id, &mut seen)
+        });
+
+        // A wall stands on a boundary when the cells either side of it differ,
+        // and around the whole diagram.
+        let vwall = |x: usize, y: usize| -> bool {
+            x == 0 || x == width || grid[y][x - 1] != grid[y][x]
+        };
+        let hwall = |x: usize, y: usize| -> bool {
+            y == 0 || y == height || grid[y - 1][x] != grid[y][x]
+        };
+
+        // A gap between two cells of the highlighted pane belongs to it too;
+        // leaving those as spaces makes a solid rectangle look like dots.
+        let filled = |x: usize, y: usize| -> bool { Some(grid[y][x]) == marked };
+        let gap_h = |x: usize, y: usize| -> bool {
+            x > 0 && x < width && !vwall(x, y) && filled(x - 1, y) && filled(x, y)
+        };
+        let gap_v = |x: usize, y: usize| -> bool {
+            y > 0 && y < height && !hwall(x, y) && filled(x, y - 1) && filled(x, y)
+        };
+
+        let mut out = Vec::new();
+        for y in 0..=height {
+            // The line of corners and horizontal walls at this boundary.
+            let mut line = String::new();
+            for x in 0..=width {
+                let up = y > 0 && vwall(x, y - 1);
+                let down = y < height && vwall(x, y);
+                let left = x > 0 && hwall(x - 1, y);
+                let right = x < width && hwall(x, y);
+                let corner = junction(up, down, left, right);
+                // Inside the shaded pane every cell of the drawing is shaded,
+                // corners and gaps included.
+                line.push(if corner == ' ' && gap_v(x.min(width.saturating_sub(1)), y) && gap_h(x, y.min(height.saturating_sub(1))) {
+                    HIGHLIGHT
+                } else {
+                    corner
+                });
+                if x < width {
+                    line.push(if right {
+                        '─'
+                    } else if gap_v(x, y) {
+                        HIGHLIGHT
+                    } else {
+                        ' '
+                    });
+                }
+            }
+            out.push(line);
+
+            if y < height {
+                let mut line = String::new();
+                for x in 0..=width {
+                    line.push(if vwall(x, y) {
+                        '│'
+                    } else if gap_h(x, y) {
+                        HIGHLIGHT
+                    } else {
+                        ' '
+                    });
+                    if x < width {
+                        line.push(if filled(x, y) { HIGHLIGHT } else { ' ' });
+                    }
+                }
+                out.push(line);
+            }
+        }
+        out
+    }
+
+    /// The rasterisation id a leaf will receive, found by the same walk order
+    /// `rasterise` uses.
+    fn find(&self, id: &str, seen: &mut usize) -> Option<usize> {
+        match self {
+            Shape::Pane(pane) => {
+                *seen += 1;
+                (pane == id).then_some(*seen)
+            }
+            Shape::Split { side, first, second } => {
+                let (a, b) = match side {
+                    Side::Left | Side::Up => (second, first),
+                    Side::Right | Side::Down => (first, second),
+                };
+                a.find(id, seen).or_else(|| b.find(id, seen))
+            }
+        }
+    }
+
+    fn rasterise(
+        &self,
+        grid: &mut [Vec<usize>],
+        x: usize,
+        y: usize,
+        w: usize,
+        h: usize,
+        next: &mut usize,
+    ) {
+        match self {
+            Shape::Pane(_) => {
+                *next += 1;
+                let id = *next;
+                for row in grid.iter_mut().skip(y).take(h) {
+                    for cell in row.iter_mut().skip(x).take(w) {
+                        *cell = id;
+                    }
+                }
+            }
+            Shape::Split { side, first, second } => {
+                let (a, b) = match side {
+                    Side::Left | Side::Up => (second, first),
+                    Side::Right | Side::Down => (first, second),
+                };
+                match side {
+                    Side::Left | Side::Right => {
+                        let cut = (w / 2).max(1).min(w.saturating_sub(1));
+                        a.rasterise(grid, x, y, cut, h, next);
+                        b.rasterise(grid, x + cut, y, w - cut, h, next);
+                    }
+                    Side::Up | Side::Down => {
+                        let cut = (h / 2).max(1).min(h.saturating_sub(1));
+                        a.rasterise(grid, x, y, w, cut, next);
+                        b.rasterise(grid, x, y + cut, w, h - cut, next);
+                    }
+                }
+            }
+        }
     }
 
     fn draw(&self, top: bool) -> String {
@@ -335,6 +521,87 @@ mod sketch_tests {
             first: Box::new(first),
             second: Box::new(second),
         }
+    }
+
+    /// The diagram as a list of lines, which reads better in a failure than
+    /// one string full of escapes.
+    fn art(shape: &Shape, w: usize, h: usize) -> Vec<String> {
+        shape.diagram(w, h)
+    }
+
+    #[test]
+    fn a_lone_pane_is_an_empty_box() {
+        assert_eq!(
+            art(&Shape::pane("a"), 3, 2),
+            ["┌─────┐", "│     │", "│     │", "│     │", "└─────┘"]
+        );
+    }
+
+    #[test]
+    fn a_side_by_side_split_gets_a_wall_with_proper_corners() {
+        let shape = split(Side::Right, Shape::pane("a"), Shape::pane("b"));
+        assert_eq!(
+            art(&shape, 2, 2),
+            ["┌─┬─┐", "│ │ │", "│ │ │", "│ │ │", "└─┴─┘"]
+        );
+    }
+
+    #[test]
+    fn a_wall_that_starts_halfway_hangs_off_a_tee() {
+        // One pane down the left, two stacked on the right. The horizontal
+        // wall exists only on the right, so the left edge stays `│` and the
+        // junction in the middle is a `├` — the case that came out wrong when
+        // walls were drawn inside cells rather than on boundaries.
+        let shape = split(
+            Side::Right,
+            Shape::pane("a"),
+            split(Side::Down, Shape::pane("b"), Shape::pane("c")),
+        );
+        assert_eq!(
+            art(&shape, 4, 2),
+            ["┌───┬───┐", "│   │   │", "│   ├───┤", "│   │   │", "└───┴───┘"]
+        );
+    }
+
+    #[test]
+    fn the_highlighted_pane_is_the_only_one_filled() {
+        let shape = split(Side::Right, Shape::pane("old"), Shape::pane("new"));
+        let lines = shape.diagram_with(2, 2, Some("new"));
+        let filled: usize = lines.iter().map(|l| l.matches(HIGHLIGHT).count()).sum();
+        // One cell wide. A diagram is `2 * height + 1` lines tall, so a
+        // two-row box has three shaded rows once the gap between them is
+        // filled in as well.
+        assert_eq!(filled, 3, "{lines:?}");
+        // And it is on the right, where `Right` puts it.
+        assert!(lines[1].ends_with("░│"), "{}", lines[1]);
+    }
+
+    #[test]
+    fn the_shaded_pane_is_a_solid_rectangle() {
+        // The gaps between cells belong to the pane too. Leaving them blank
+        // turns a filled rectangle into a field of dots.
+        let shape = split(Side::Right, Shape::pane("old"), Shape::pane("new"));
+        let lines = shape.diagram_with(6, 2, Some("new"));
+        for line in &lines[1..lines.len() - 1] {
+            // Counted in characters, not bytes: these are all multi-byte.
+            let chars: Vec<char> = line.chars().collect();
+            let start = chars.iter().position(|c| *c == HIGHLIGHT);
+            let end = chars.iter().rposition(|c| *c == HIGHLIGHT);
+            let (Some(start), Some(end)) = (start, end) else {
+                panic!("nothing shaded in {line}");
+            };
+            assert!(
+                chars[start..=end].iter().all(|c| *c == HIGHLIGHT),
+                "{line} has gaps"
+            );
+        }
+    }
+
+    #[test]
+    fn highlighting_a_pane_that_is_not_there_shades_nothing() {
+        let shape = split(Side::Right, Shape::pane("a"), Shape::pane("b"));
+        let lines = shape.diagram_with(2, 2, Some("absent"));
+        assert!(lines.iter().all(|l| !l.contains(HIGHLIGHT)));
     }
 
     #[test]
@@ -471,3 +738,4 @@ mod tests {
         }
     }
 }
+

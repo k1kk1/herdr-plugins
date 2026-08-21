@@ -68,6 +68,12 @@ pub struct Row {
     pub secondary: Option<String>,
     /// Dimmed line underneath, e.g. the terminal title.
     pub detail: Option<String>,
+    /// Extra dimmed lines under the row — a diagram, say.
+    ///
+    /// Drawn only for the row under the cursor (see `Menu::run_with`): a
+    /// picture worth several lines is worth them for the one entry being
+    /// considered, and not for the rest of the list at the same time.
+    pub extra: Vec<String>,
     /// Dimmed text pinned to the right edge of the line.
     ///
     /// For a value that repeats down the list — which tool a conversation
@@ -88,6 +94,7 @@ impl Row {
             primary: primary.into(),
             secondary: None,
             detail: None,
+            extra: Vec::new(),
             trailing: None,
         }
     }
@@ -138,6 +145,11 @@ impl Row {
 
     pub fn detail(mut self, text: Option<String>) -> Self {
         self.detail = text;
+        self
+    }
+
+    pub fn extra(mut self, lines: Vec<String>) -> Self {
+        self.extra = lines;
         self
     }
 
@@ -395,7 +407,7 @@ impl Term {
         let heights: Vec<usize> = view
             .rows
             .iter()
-            .map(|row| if row.detail.is_some() { 2 } else { 1 })
+            .map(|row| usize::from(row.detail.is_some()) + row.extra.len() + 1)
             .collect();
         let total: usize = heights.iter().sum();
         // Everything above the footer is available to the list.
@@ -563,6 +575,27 @@ impl Term {
         }
 
         *line += 1;
+
+        for text in &row.extra {
+            if *line >= height {
+                return Ok(());
+            }
+            queue!(self.out, cursor::MoveTo(0, *line), Print("       "))?;
+            // The shading glyph marks the part being pointed at, so it takes
+            // the accent while the rest of the drawing stays out of the way.
+            // Colouring by character rather than by span keeps `extra` a plain
+            // `Vec<String>`, which is all any caller has wanted so far.
+            for ch in truncate(text, width.saturating_sub(7)).chars() {
+                let colour = if ch == crate::layout::HIGHLIGHT {
+                    accent
+                } else {
+                    Color::DarkGrey
+                };
+                queue!(self.out, SetForegroundColor(colour), Print(ch))?;
+            }
+            queue!(self.out, ResetColor)?;
+            *line += 1;
+        }
 
         if let Some(detail) = &row.detail {
             if *line < height {
