@@ -1,0 +1,48 @@
+# Herdr Open の設定
+#
+#   herdr plugin config-dir open
+#
+# のディレクトリに config.toml として置きます。
+# 何も置かなければ Finder / VS Code / クリップボードの3つが出ます。
+
+# Pane 自身の cwd ではなく、その git リポジトリのルートを既定にする。
+# ピッカーでは g キーでいつでも切り替えられます。
+prefer_git_root = false
+
+# [[target]] を1つでも書くと、組み込みの3つは**置き換わります**。
+# 消したいものがあるときは、残したいものを全部書き直してください。
+#
+# command は argv です。シェルを通さないので、パスに空白や引用符が入っていても
+# 壊れません。使えるプレースホルダ:
+#
+#   {dir}     Pane の作業ディレクトリ（または git ルート）
+#   {name}    その basename
+#   {parent}  その親ディレクトリ
+#
+# requires は「これが PATH に無ければこの行を出さない」判定に使うプログラムです。
+# 省略すると command の1つ目を見ます。sh -c 越しに呼ぶときだけ明示が要ります。
+
+# [[target]]
+# id = "finder"
+# title = "Reveal in Finder"
+# hotkey = "f"
+# command = ["open", "{dir}"]
+
+# [[target]]
+# id = "editor"
+# title = "Open in Cursor"
+# hotkey = "e"
+# command = ["cursor", "{dir}"]
+
+# [[target]]
+# id = "term"
+# title = "New Herdr Tab Here"
+# hotkey = "t"
+# command = ["herdr", "tab", "create", "--cwd", "{dir}", "--label", "{name}"]
+
+# [[target]]
+# id = "github"
+# title = "Open on GitHub"
+# hotkey = "g"          # g はピッカーでは git ルート切り替えに予約されています
+# command = ["sh", "-c", 'cd "$1" && gh browse', "sh", "{dir}"]
+# requires = "gh"

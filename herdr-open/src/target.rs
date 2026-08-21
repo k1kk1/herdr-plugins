@@ -317,7 +317,8 @@ mod tests {
 
     #[test]
     fn built_in_ids_are_unique_and_stable() {
-        let ids: Vec<&str> = builtin().iter().map(|t| t.id.as_str()).collect();
+        let targets = builtin();
+        let ids: Vec<&str> = targets.iter().map(|t| t.id.as_str()).collect();
         assert!(ids.contains(&"finder"));
         assert!(ids.contains(&"editor"));
         let mut sorted = ids.clone();

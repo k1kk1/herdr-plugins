@@ -145,6 +145,9 @@ fn run() -> Result<()> {
             };
             let argv = open::open(&config, name)?;
             println!("{}", argv.join(" "));
+            if let Some(note) = open::foreign_terminal_note(&config) {
+                println!("{note}");
+            }
             Ok(())
         }
         "alfred" => match args.get(1).map(String::as_str) {

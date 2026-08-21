@@ -99,7 +99,7 @@ command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manag
 id = "restore-gather"
 title = "Restore Gathered Agents"
 description = "Return every gathered pane to the tab it came from"
-contexts = ["global", "tab"]
+contexts = ["global", "tab", "pane"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" restore-gather']
 
 [[actions]]

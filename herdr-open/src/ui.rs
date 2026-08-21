@@ -6,7 +6,7 @@
 
 use std::path::PathBuf;
 
-use herdr_plugin_kit::herdr::{Herdr, Pane};
+use herdr_plugin_kit::herdr::Pane;
 use herdr_plugin_kit::label;
 use herdr_plugin_kit::ui::{menu, Key, Menu, Row, Term};
 use herdr_plugin_kit::{bail, Outcome, Result};
@@ -14,7 +14,7 @@ use herdr_plugin_kit::{bail, Outcome, Result};
 use crate::dir;
 use crate::target::{Config, Target};
 
-pub fn run(herdr: &Herdr, pane: &Pane, config: &Config) -> Result<Option<Outcome>> {
+pub fn run(pane: &Pane, config: &Config) -> Result<Option<Outcome>> {
     let cwd = dir::pane_dir(pane)?;
     let root = dir::git_root(&cwd);
 
@@ -95,9 +95,9 @@ fn pick(
 /// This menu takes no query, so `q` closes it and is advertised.
 fn footer(has_root: bool) -> &'static str {
     if has_root {
-        "↑↓ move · 1-9 pick · Enter open · g git root · q / Esc cancel"
+        "↑↓ move · Enter open · g git root · q / Esc cancel"
     } else {
-        "↑↓ move · 1-9 pick · Enter open · q / Esc cancel"
+        "↑↓ move · Enter open · q / Esc cancel"
     }
 }
 
@@ -114,14 +114,14 @@ fn build(
             dir::tilde(chosen),
             if using_root { " · repository root" } else { "" }
         ))
-        .footer(footer(has_root))
-        .numbered();
+        .footer(footer(has_root));
 
     for target in targets {
         let mut row = Row::item(target.title.clone());
         if let Some(hotkey) = &target.hotkey {
-            // Numbering overwrites the hotkey of the first nine rows, so a
-            // configured letter is a hint for long lists, not the main path.
+            // Letters rather than numbers, as in Layout Tools: this list is
+            // short and fixed, so `f` always means Finder. Numbering is for
+            // the lists that grow (docs/ui-conventions.md).
             row = row.hotkey(hotkey.clone());
         }
         if let Some(description) = &target.description {

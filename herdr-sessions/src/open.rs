@@ -19,6 +19,7 @@
 //! rather than two: from Alfred there is no Herdr pane at all, and the answer
 //! is still "a new terminal window".
 
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 use herdr_plugin_kit::{bail, Context, Result};
@@ -93,6 +94,53 @@ pub fn command_for(config: &Config, name: &str) -> Result<Vec<String>> {
         .collect())
 }
 
+/// The application bundle that Herdr is actually running inside.
+///
+/// Found by walking up from a live `herdr` client process until an ancestor
+/// turns out to be an app bundle's executable:
+///
+/// ```text
+/// herdr → -/bin/zsh → /usr/bin/login → /Applications/cmux.app/…/cmux
+/// ```
+///
+/// Worth the process walk because the alternatives are wrong. `TERM_PROGRAM`
+/// is unset when Alfred is the caller, and guessing from what is installed
+/// picks whichever terminal happens to be listed first — which is how a user
+/// running Herdr inside cmux ended up with a brand new, empty Ghostty window.
+pub fn hosting_app() -> Option<PathBuf> {
+    let pids = Command::new("pgrep").args(["-x", "herdr"]).output().ok()?;
+    let pids = String::from_utf8_lossy(&pids.stdout);
+
+    for pid in pids.split_whitespace() {
+        let mut pid = pid.to_string();
+        // Bounded: a runaway or circular tree must not spin here.
+        for _ in 0..12 {
+            let out = Command::new("ps")
+                .args(["-o", "ppid=,comm=", "-p", &pid])
+                .output()
+                .ok()?;
+            let line = String::from_utf8_lossy(&out.stdout);
+            let Some((parent, command)) = line.trim().split_once(char::is_whitespace) else {
+                break;
+            };
+            if let Some(bundle) = bundle_of(command.trim()) {
+                return Some(bundle);
+            }
+            pid = parent.trim().to_string();
+            if pid == "1" || pid == "0" || pid.is_empty() {
+                break;
+            }
+        }
+    }
+    None
+}
+
+/// `/Applications/cmux.app/Contents/MacOS/cmux` → `/Applications/cmux.app`
+fn bundle_of(command: &str) -> Option<PathBuf> {
+    let at = command.find(".app/Contents/MacOS/")?;
+    Some(PathBuf::from(&command[..at + 4]))
+}
+
 /// The application the open command launches, if it names one.
 ///
 /// Used to bring the terminal forward after doing something to the session
@@ -105,14 +153,19 @@ pub fn terminal_app(config: &Config) -> Option<String> {
         .find(|part| part.ends_with(".app"))
 }
 
-/// Bring the terminal to the front. Best-effort; nothing depends on it.
-pub fn focus_terminal(config: &Config) {
-    let Some(app) = terminal_app(config) else {
+/// Bring the terminal Herdr is running in to the front.
+///
+/// Only ever raises an application that is **already running**, which is why
+/// the target comes from the process tree rather than from configuration or a
+/// guess: `open -a` launches an app that is not running, and a fresh empty
+/// terminal window is a worse outcome than doing nothing at all.
+pub fn focus_terminal(_config: &Config) {
+    let Some(app) = hosting_app() else {
         return;
     };
     // No `-n`: the point is to raise the window that already exists.
     let _ = Command::new("open")
-        .args(["-a", &app])
+        .args(["-a".as_ref(), app.as_os_str()])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -244,7 +297,29 @@ fn default_template() -> Result<Vec<String>> {
             .collect());
     }
 
+    // The terminal Herdr is actually running in comes first, then the one this
+    // process is running in, then whatever is installed. Only the first is
+    // reliable when Alfred is the caller: it sets no TERM_PROGRAM, and
+    // "whatever is installed" once opened an empty Ghostty window for someone
+    // whose Herdr lives in cmux.
+    let host = hosting_app()
+        .and_then(|path| path.file_name().map(|name| name.to_string_lossy().to_string()));
     let current = std::env::var("TERM_PROGRAM").unwrap_or_default();
+
+    if let Some(host) = &host {
+        if let Some((_, app, before)) = KNOWN
+            .iter()
+            .find(|(_, app, _)| app == host)
+            .filter(|(_, _, before)| !before.is_empty())
+        {
+            return Ok(assemble(app, before, &attach));
+        }
+        // Herdr's terminal cannot be handed a command. Falling through to
+        // another one still does the useful thing — a session attached in some
+        // terminal beats no session — but the caller says which, because a
+        // window from an application you were not using is a surprise.
+    }
+
     let chosen = KNOWN
         .iter()
         .find(|(term, app, _)| *term == current && installed(app))
@@ -255,22 +330,55 @@ fn default_template() -> Result<Vec<String>> {
     };
 
     if before.is_empty() {
-        bail!(
-            "{name} cannot be handed a command on the command line.\n\
-             Set `command` in the Sessions plugin config to open it your way:\n\
-             \n  herdr plugin config-dir {}\n\
-             \n{}",
-            crate::PLUGIN_ID,
-            EXAMPLE
-        );
+        bail!("{}", cannot_drive(name));
     }
 
-    Ok(std::iter::once("open".to_string())
-        .chain(std::iter::once("-na".to_string()))
-        .chain(std::iter::once(app.to_string()))
-        .chain(before.iter().map(|s| s.to_string()))
-        .chain(attach.iter().map(|s| s.to_string()))
-        .collect())
+    Ok(assemble(app, before, &attach))
+}
+
+fn assemble(app: &str, before: &[&str], attach: &[&str]) -> Vec<String> {
+    ["open", "-na", app]
+        .into_iter()
+        .chain(before.iter().copied())
+        .chain(attach.iter().copied())
+        .map(str::to_string)
+        .collect()
+}
+
+/// Set when the session will open in a terminal other than Herdr's own.
+///
+/// Returned for the caller to show, rather than swallowed: a window from an
+/// application the user was not using needs explaining, and the explanation is
+/// also the instruction for changing it.
+pub fn foreign_terminal_note(config: &Config) -> Option<String> {
+    if !config.command.is_empty() {
+        return None;
+    }
+    let host = hosting_app()?;
+    let host = host.file_name()?.to_string_lossy().to_string();
+    if KNOWN
+        .iter()
+        .any(|(_, app, before)| *app == host && !before.is_empty())
+    {
+        return None;
+    }
+    let opened = terminal_app(config)?;
+    Some(format!(
+        "Opened in {opened}: {host} cannot be handed a command. \
+         Set `command` in the Sessions plugin config to change that."
+    ))
+}
+
+#[allow(dead_code)]
+fn cannot_drive(name: &str) -> String {
+    format!(
+        "{name} cannot be handed a command on the command line.\n\
+         Set `command` in the Sessions plugin config to open it your way:\n\
+         \n  herdr plugin config-dir {}\n\
+         \n{}",
+        crate::PLUGIN_ID,
+        EXAMPLE
+    )
 }
 
 fn installed(app: &str) -> bool {

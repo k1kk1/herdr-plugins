@@ -1,6 +1,6 @@
 # Herdr Plugins
 
-[Herdr](https://herdr.dev) 用のプラグイン集です。責務を分けた5つのプラグインと、それらが共有する1つのライブラリで構成されています。
+[Herdr](https://herdr.dev) 用のプラグイン集です。責務を分けた6つのプラグインと、それらが共有する1つのライブラリで構成されています。
 
 **動いているプロセスを止めずに** Pane を組み替えることを最優先の制約にしています。
 Codex / Claude / dev server / log tail は、移動・交換・統合・集約のどれを行っても再起動されません。
@@ -8,10 +8,11 @@ Codex / Claude / dev server / log tail は、移動・交換・統合・集約�
 | プラグイン | 責務 | 既定キー | Action数 |
 |---|---|---|---|
 | [herdr-pane-manager](herdr-pane-manager/) | Pane が **どの Tab に属するか** | `prefix+m` | 21 |
-| [herdr-layout-tools](herdr-layout-tools/) | Tab の **中のどこに置くか** | `prefix+shift+l` | 10 |
+| [herdr-layout-tools](herdr-layout-tools/) | Tab の **中のどこに置くか** | `prefix+shift+l` | 11 |
 | [herdr-navigator](herdr-navigator/) | **探して飛ぶ**（何も動かさない） | `prefix+f` | 4 |
 | [herdr-command-palette](herdr-command-palette/) | 全プラグインの Action を横断検索 | `prefix+space` | 1 |
 | [herdr-sessions](herdr-sessions/) | **セッションの外**を見る。一覧して開く・再開する | `prefix+shift+s` | 5 |
+| [herdr-open](herdr-open/) | **ターミナルの外**へ渡す。cwd を Finder / エディタで開く | `prefix+d` | 5 |
 | [herdr-plugin-kit](herdr-plugin-kit/) | 共有ライブラリ（socket client / 表示名 / split tree / TUI） | — | — |
 
 この分割は `herdr-pane-manager-spec.md` §2.3 / §27 の棲み分け方針に沿ったものです。
@@ -37,6 +38,8 @@ Codex / Claude / dev server / log tail は、移動・交換・統合・集約�
 ### Layout Tools
 
 Equalize / Grid / Columns / Rows / Main Left / Main Right / Main Top / Zoom。
+Zoom は Herdr 本体の zoom キーと同じ `pane.zoom` です。右クリックとパレットからも
+引けるように Action にしてあります。
 同一 Tab 内だけを扱い、Pane Manager とは責務が重なりません。
 
 **保存レイアウト** — 今の形に名前を付けて保存し、あとで比率ごと復元できます。
@@ -71,6 +74,19 @@ Pane / Agent / Tab / Workspace を横断 fuzzy 検索して Focus を移すだ�
 **今いるセッションの中**で再開します。`Enter` で新しい Workspace、
 `Shift+Enter` で新しい Tab、`Opt+Enter` で今の Pane を分割します。
 
+### Open
+
+いま見ている Pane の cwd を、ターミナルの外へ渡します。
+Finder で開く / エディタで開く / パスをクリップボードへ。
+
+どのディレクトリかは `foreground_cwd` → `cwd` の順で決めます。Agent が別の場所で
+起動されていても、画面に映っているほうを指します。`g` で git リポジトリのルートに
+切り替わります。
+
+開き先は `[[target]]` で差し替えられます（argv なので、パスに空白や引用符が入っても
+シェルに再解釈されません）。**PATH に無いアプリの行は一覧に出しません** — GUI の起動は
+detach するので、押しても何も起きなかったことに気づけないためです。
+
 ---
 
 ## インストール
@@ -79,7 +95,7 @@ Pane / Agent / Tab / Workspace を横断 fuzzy 検索して Focus を移すだ�
 git clone <this repo> ~/src/herdr-plugins
 cd ~/src/herdr-plugins
 
-for p in herdr-pane-manager herdr-layout-tools herdr-navigator herdr-command-palette herdr-sessions; do
+for p in herdr-pane-manager herdr-layout-tools herdr-navigator herdr-command-palette herdr-sessions herdr-open; do
   (cd "$p" && cargo build --release)
   herdr plugin link "$PWD/$p"
 done
@@ -102,7 +118,7 @@ height = "70%"
 ```
 
 反映は `herdr server reload-config`、または `prefix+shift+r`。
-残り4つのキーは各プラグインの README を参照してください。
+残り5つのキーは各プラグインの README を参照してください。
 
 Alfred 連携を使う場合は追加で:
 
@@ -167,12 +183,12 @@ Gather の優先度順やフィルタを試せます。
 ## 開発
 
 ```bash
-for p in herdr-plugin-kit herdr-pane-manager herdr-layout-tools herdr-navigator herdr-command-palette; do
+for p in herdr-plugin-kit herdr-pane-manager herdr-layout-tools herdr-navigator herdr-command-palette herdr-sessions herdr-open; do
   (cd "$p" && cargo test)
 done
 ```
 
-現在 126 テスト。分割ツリーの組み立て・表示幅・fuzzy 検索・スクロール計算など、
+現在 197 テスト。分割ツリーの組み立て・表示幅・fuzzy 検索・スクロール計算など、
 壊れると画面で気づきにくいものを中心に単体テストにしています。
 
 `herdr-plugin-kit` は path dependency で参照しています。cargo workspace には**していません** —

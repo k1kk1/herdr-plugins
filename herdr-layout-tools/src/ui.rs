@@ -143,13 +143,7 @@ fn menu(
     match choice {
         Choice::Cancel => Ok(None),
         Choice::Equalize => ops::equalize(herdr, tab_id).map(Some),
-        Choice::Zoom => {
-            herdr.zoom_pane(&source.pane_id, "toggle")?;
-            Ok(Some(Outcome::new(format!(
-                "Toggled zoom on \"{}\"",
-                label::pane_compact(source)
-            ))))
-        }
+        Choice::Zoom => ops::zoom(herdr, source).map(Some),
         Choice::Arrange(arrangement) => {
             ops::arrange(herdr, tab_id, arrangement, Some(&source.pane_id)).map(Some)
         }

@@ -39,6 +39,9 @@ Usage:
       Rearrange the tab. --pane names the pane that gets the large slot in
       the main-* arrangements; it defaults to the focused pane.
 
+  herdr-layout-tools zoom [--pane ID]
+      Toggle zoom on one pane. The same thing Herdr's own zoom key does.
+
   herdr-layout-tools save <name> [--tab ID]
       Remember this tab's shape under a name. Pane ids are not stored, so it
       can be applied to any tab with the same number of panes.
@@ -105,6 +108,11 @@ fn run() -> Result<()> {
             for (name, layout) in &saved {
                 println!("{name}\t{}", layout.describe());
             }
+            Ok(())
+        }
+        "zoom" => {
+            let source = context::resolve_source_pane(&herdr, args.pane.as_deref())?;
+            ops::zoom(&herdr, &source)?.report(&herdr);
             Ok(())
         }
         "equalize" => {

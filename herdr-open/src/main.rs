@@ -86,7 +86,7 @@ fn run() -> Result<()> {
         }
         "ui" => {
             let source = source_pane(&herdr, &args)?;
-            if let Some(outcome) = ui::run(&herdr, &source, &config)? {
+            if let Some(outcome) = ui::run(&source, &config)? {
                 outcome.report(&herdr);
             }
             Ok(())

@@ -10,7 +10,8 @@
 //!   and moved back in the order that builds the target tree; `pane.move`
 //!   keeps pane ids, and with them the shells and agents running inside.
 
-use herdr_plugin_kit::herdr::{Direction, Herdr, Layout};
+use herdr_plugin_kit::herdr::{Direction, Herdr, Layout, Pane};
+use herdr_plugin_kit::label;
 use herdr_plugin_kit::{anyhow, Context, Outcome, Result};
 
 use crate::arrange::{Arrangement, Plan, Shape};
@@ -21,6 +22,31 @@ use crate::template::{self, Template};
 /// A split's ratio is the share of space its first branch takes, so an even
 /// layout wants `leaves(first) / leaves(split)` — not 0.5, which would only be
 /// right for perfectly balanced trees.
+/// Toggle zoom on one pane.
+///
+/// The same `pane.zoom` call Herdr's own zoom key makes. It lives here so the
+/// menu, the context-menu action and the CLI all report it identically.
+///
+/// The new state is read back rather than assumed: the pane may have been
+/// zoomed from outside since the menu was drawn, and reporting "Zoomed" when
+/// the toggle just came *out* of zoom is worse than saying nothing
+/// (追加仕様 §8). Zoom is a property of the tab, not of the pane, so the
+/// answer comes from `layout.export`.
+pub fn zoom(herdr: &Herdr, pane: &Pane) -> Result<Outcome> {
+    herdr
+        .zoom_pane(&pane.pane_id, "toggle")
+        .with_context(|| "Could not zoom this pane.")?;
+
+    let zoomed = herdr.layout(&pane.tab_id).map(|layout| layout.zoomed);
+    let verb = match zoomed {
+        Ok(true) => "Zoomed",
+        Ok(false) => "Unzoomed",
+        // The toggle itself succeeded; only the read-back failed.
+        Err(_) => "Toggled zoom on",
+    };
+    Ok(Outcome::new(format!("{verb} \"{}\"", label::pane_compact(pane))))
+}
+
 pub fn equalize(herdr: &Herdr, tab_id: &str) -> Result<Outcome> {
     let layout = herdr
         .layout(tab_id)

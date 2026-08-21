@@ -18,7 +18,7 @@ Pane Manager 仕様書 §2.3 / §17 / §27 で Pane Manager の責務外とさ�
 | **Rows** | 全 Pane を縦一列に並べる |
 | **Main Left / Right** | 現在の Pane を左右いずれかに大きく、残りを反対側へ縦に積む |
 | **Main Top** | 現在の Pane を上に大きく、残りを下に横一列で並べる |
-| **Zoom** | 現在の Pane のズームを切り替える |
+| **Zoom** | 現在の Pane のズームを切り替える（Herdr 本体の zoom キーと同じ API） |
 
 いずれもプロセスは止まりません。
 
@@ -110,11 +110,13 @@ Pane 数が合わない Tab に適用しようとすると、両方の数を挙�
 ## 右クリック
 
 Pane / Tab の右クリックメニューに `Layout Tools` と各配置が並びます。
+`Zoom / Unzoom Pane` と `Saved Layouts` も Pane の右クリックから直接呼べます。
 
 ### Plugin Action
 
 ```bash
 herdr plugin action invoke equalize   --plugin layout-tools
+herdr plugin action invoke zoom       --plugin layout-tools
 herdr plugin action invoke grid       --plugin layout-tools
 herdr plugin action invoke main-left  --plugin layout-tools
 ```
@@ -125,6 +127,7 @@ herdr plugin action invoke main-left  --plugin layout-tools
 LT=./target/release/herdr-layout-tools
 
 $LT equalize [--tab w1:t2]
+$LT zoom [--pane w1:p3]   # Herdr 本体の zoom キーと同じ pane.zoom を叩く
 $LT arrange grid|columns|rows|main-left|main-right|main-top [--tab ID] [--pane ID]
 $LT doctor    # 現在 Tab の split tree と各 split の比率を表示
 ```

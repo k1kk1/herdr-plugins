@@ -425,9 +425,13 @@ fn open(term: &mut Term, config: &Config, session: &Session) -> Result<Option<Ou
     }
 
     let argv = crate::open::open(config, &session.name)?;
+    let mut detail = vec![argv.join(" ")];
+    if let Some(note) = crate::open::foreign_terminal_note(config) {
+        detail.push(note);
+    }
     Ok(Some(
         Outcome::new(format!("Opening `{}` in a new window", session.name))
-            .with_detail(argv.join(" ")),
+            .with_detail(detail.join("\n")),
     ))
 }
 

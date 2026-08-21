@@ -29,6 +29,17 @@ description = "Open the Layout Tools menu for this tab"
 contexts = ["pane", "tab", "global"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-layout-tools" launch']
 
+# Zoom is Herdr's own `pane.zoom`, exposed here so it is reachable from the
+# pane context menu and the Command Palette as well as from the key Herdr
+# binds itself.
+
+[[actions]]
+id = "zoom"
+title = "Zoom / Unzoom Pane"
+description = "Make this pane fill the tab, or give the others their space back"
+contexts = ["pane"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-layout-tools" zoom']
+
 [[actions]]
 id = "equalize"
 title = "Equalize Layout"
@@ -92,5 +103,5 @@ command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-layout-too
 id = "layouts"
 title = "Saved Layouts"
 description = "Apply, save or delete a saved layout"
-contexts = ["global", "tab"]
+contexts = ["global", "tab", "pane"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-layout-tools" launch']
