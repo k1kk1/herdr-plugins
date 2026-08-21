@@ -432,7 +432,11 @@ fn open(term: &mut Term, config: &Config, session: &Session) -> Result<Option<Ou
 
 fn manage(term: &mut Term, session: &Session) -> Result<Option<Outcome>> {
     let mut menu: Menu<Action> = Menu::new(format!("Session `{}`", session.name))
-        .subtitle(session.state());
+        .subtitle(if session.running {
+            "起動中です。停止してもレイアウトは残ります"
+        } else {
+            "停止中です。削除すると保存されたレイアウトも消えます"
+        });
 
     if session.running {
         menu.item(

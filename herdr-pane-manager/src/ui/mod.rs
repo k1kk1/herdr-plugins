@@ -296,7 +296,7 @@ fn gather_flow(term: &mut Term, herdr: &Herdr, config: &Config) -> Result<Option
     let default_scope = config.gather.scope();
     let mut menu = Menu::new("Gather Active Agents")
         .subtitle(format!(
-            "{} · {}",
+            "対応が必要な Agent を1つの Tab へ集めます · {} · {}",
             config.gather.status_summary(),
             default_scope.label()
         ));
@@ -357,8 +357,8 @@ fn move_flow(
     config: &Config,
 ) -> Result<Option<Outcome>> {
     let mut menu = destination_menu(
-        "Move current pane to",
-        source_line(snapshot, config),
+        "Move to…",
+        format!("{} を、選んだ Tab へ移します", source_line(snapshot, config)),
         snapshot.move_destinations(),
         snapshot,
         true,
@@ -438,10 +438,9 @@ fn merge_flow(
     let pane_count = source_tab.panes.len();
 
     let mut menu = destination_menu(
-        "Merge current tab into",
+        "Fold into…",
         format!(
-            "{source_name} · {pane_count} pane{}",
-            if pane_count == 1 { "" } else { "s" }
+            "{source_name} の {pane_count} Pane を、選んだ Tab へまとめて移します"
         ),
         snapshot.merge_destinations(&source_tab_id),
         snapshot,
@@ -486,8 +485,11 @@ fn swap_flow(
     snapshot: &Snapshot,
     config: &Config,
 ) -> Result<Option<Outcome>> {
-    let mut menu = Menu::new("Swap current pane with")
-        .subtitle(source_line(snapshot, config))
+    let mut menu = Menu::new("Swap with…")
+        .subtitle(format!(
+            "{} を、選んだ Pane と位置ごと入れ替えます",
+            source_line(snapshot, config)
+        ))
         .filterable();
 
     let candidates = snapshot.swap_candidates();
@@ -599,8 +601,11 @@ fn choose_target_pane(
         bail!("Destination tab no longer exists.");
     };
 
-    let mut menu = Menu::new("Split which pane?")
-        .subtitle(label::tab_display(&tab.tab, tab.position));
+    let mut menu = Menu::new("Split next to…")
+        .subtitle(format!(
+            "{} の、どの Pane の隣に置くかを選びます",
+            label::tab_display(&tab.tab, tab.position)
+        ));
 
     menu.item(
         Row::item("Auto")
@@ -625,8 +630,8 @@ fn ask_placement(term: &mut Term, config: &Config, context: &str) -> Result<Opti
     let side = match config.default_move_direction.resolve() {
         Some(side) => side,
         None => {
-            let mut menu = Menu::new("Place where?")
-                .subtitle(context.to_string());
+            let mut menu = Menu::new("Which side?")
+                .subtitle(format!("{context} の、どちら側に置きますか"));
             for side in Side::ALL {
                 menu.item(
                     Row::item(capitalize(side.as_str())).hotkey(side.hotkey().to_string()),
@@ -642,7 +647,7 @@ fn ask_placement(term: &mut Term, config: &Config, context: &str) -> Result<Opti
 
     let ratio = if config.ask_ratio() {
         let mut menu = Menu::new("How much space?")
-            .subtitle(context.to_string());
+            .subtitle(format!("{context} の空間を、どう分けますか"));
         for (index, ratio) in Ratio::ALL.iter().enumerate() {
             menu.item(
                 Row::item(ratio.label())

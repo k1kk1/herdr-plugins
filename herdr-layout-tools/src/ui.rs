@@ -166,7 +166,7 @@ fn menu(
 fn ask_name(term: &mut Term) -> Result<Option<String>> {
     let existing = template::load();
     let mut menu: Menu<String> = Menu::new("Save this layout as")
-        .subtitle("名前を入力して Enter")
+        .subtitle("この Tab の分割の形を、名前を付けて覚えます")
         .prompt("type a name")
         .enter("save")
         .filterable();
@@ -198,7 +198,8 @@ fn ask_name(term: &mut Term) -> Result<Option<String>> {
 /// Choose a saved layout to delete.
 fn pick_saved(term: &mut Term) -> Result<Option<String>> {
     let saved = template::load();
-    let mut menu: Menu<String> = Menu::new("Delete which saved layout?")
+    let mut menu: Menu<String> = Menu::new("Delete a saved layout")
+        .subtitle("選んだ保存済みレイアウトを削除します。今の画面は変わりません")
         .numbered();
     for (name, layout) in &saved {
         menu.item(
