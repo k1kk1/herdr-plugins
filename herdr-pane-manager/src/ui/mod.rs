@@ -171,25 +171,29 @@ fn manager(
     menu.item(
         Row::item("Move to…")
             .hotkey("m")
-            .secondary("この Pane を別の Tab へ移す"),
+            .secondary("この Pane を別の Tab へ移す")
+            .extra(source_preview(snapshot, false)),
         Choice::Move,
     );
     menu.item(
         Row::item("Swap with…")
             .hotkey("s")
-            .secondary("別の Pane と入れ替える"),
+            .secondary("別の Pane と入れ替える")
+            .extra(source_preview(snapshot, false)),
         Choice::Swap,
     );
     menu.item(
         Row::item("Extract…")
             .hotkey("e")
-            .secondary("独立した Tab へ切り出す"),
+            .secondary("独立した Tab へ切り出す")
+            .extra(source_preview(snapshot, false)),
         Choice::Extract,
     );
     menu.item(
         Row::item("Fold into…")
             .hotkey("f")
-            .secondary("この Tab を別の Tab へ畳む"),
+            .secondary("この Tab を別の Tab へ畳む")
+            .extra(source_preview(snapshot, true)),
         Choice::Merge,
     );
 
@@ -675,6 +679,27 @@ fn tab_diagram(tab: &TabEntry, arriving: Option<Side>) -> Vec<String> {
         }
         _ => shape.diagram(DIAGRAM.0, DIAGRAM.1),
     }
+}
+
+/// The current tab, with whatever an action would take from it shaded.
+///
+/// Move, Swap and Fold all ask for a destination afterwards, so a picture of
+/// the result would be a guess. What *is* settled at this point is which
+/// panes are leaving, and that is the half worth drawing.
+fn source_preview(snapshot: &Snapshot, whole_tab: bool) -> Vec<String> {
+    let Some(tab) = snapshot.source_tab() else {
+        return Vec::new();
+    };
+    let shape = match &tab.shape {
+        Some(shape) => shape.clone(),
+        None => Shape::pane(&snapshot.source.pane_id),
+    };
+    let taken: Vec<&str> = if whole_tab {
+        tab.panes.iter().map(|p| p.pane_id.as_str()).collect()
+    } else {
+        vec![snapshot.source.pane_id.as_str()]
+    };
+    shape.diagram_marking(DIAGRAM.0, DIAGRAM.1, &taken)
 }
 
 /// Stand-in id for the pane being placed. Starts with a control character so

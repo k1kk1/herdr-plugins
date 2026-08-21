@@ -271,17 +271,25 @@ impl Shape {
         height: usize,
         highlight: Option<&str>,
     ) -> Vec<String> {
+        self.diagram_marking(width, height, highlight.as_slice())
+    }
+
+    /// The diagram with several panes shaded — a whole tab on the move, say.
+    pub fn diagram_marking(&self, width: usize, height: usize, highlight: &[&str]) -> Vec<String> {
         let width = width.max(2);
         let height = height.max(2);
         let mut grid = vec![vec![0usize; width]; height];
         let mut next = 0usize;
         self.rasterise(&mut grid, 0, 0, width, height, &mut next);
 
-        // Which rasterised id the highlighted pane ended up as.
-        let marked = highlight.and_then(|id| {
-            let mut seen = 0usize;
-            self.find(id, &mut seen)
-        });
+        // Which rasterised ids the highlighted panes ended up as.
+        let marked: Vec<usize> = highlight
+            .iter()
+            .filter_map(|id| {
+                let mut seen = 0usize;
+                self.find(id, &mut seen)
+            })
+            .collect();
 
         // A wall stands on a boundary when the cells either side of it differ,
         // and around the whole diagram.
@@ -294,7 +302,7 @@ impl Shape {
 
         // A gap between two cells of the highlighted pane belongs to it too;
         // leaving those as spaces makes a solid rectangle look like dots.
-        let filled = |x: usize, y: usize| -> bool { Some(grid[y][x]) == marked };
+        let filled = |x: usize, y: usize| -> bool { marked.contains(&grid[y][x]) };
         let gap_h = |x: usize, y: usize| -> bool {
             x > 0 && x < width && !vwall(x, y) && filled(x - 1, y) && filled(x, y)
         };
