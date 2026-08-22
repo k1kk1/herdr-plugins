@@ -9,6 +9,138 @@
 
 pub use herdr_plugin_kit::layout::{Placement, Plan, Shape, Side};
 
+/// One layout operation's complete target: both its split tree and ratios.
+///
+/// Keeping this beside the build plan prevents the preview and the live
+/// operation from quietly choosing different proportions.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LayoutSpec {
+    pub plan: Plan,
+    pub shape: Shape,
+}
+
+impl LayoutSpec {
+    pub fn from_plan(plan: Plan) -> Self {
+        let shape = plan.simulate();
+        Self { plan, shape }
+    }
+
+    /// Give every leaf the same area while preserving the plan's topology.
+    pub fn equalized(plan: Plan) -> Self {
+        let mut spec = Self::from_plan(plan);
+        equalize_shape(&mut spec.shape);
+        spec
+    }
+
+    /// Apply explicit split ratios, addressed from the root.
+    pub fn with_ratios(plan: Plan, ratios: &[(Vec<bool>, f32)]) -> Option<Self> {
+        let mut spec = Self::from_plan(plan);
+        for (path, ratio) in ratios {
+            if !set_ratio(&mut spec.shape, path, *ratio) {
+                return None;
+            }
+        }
+        Some(spec)
+    }
+
+    pub fn ratios(&self) -> Vec<(Vec<bool>, f32)> {
+        let mut ratios = Vec::new();
+        collect_ratios(&self.shape, &mut Vec::new(), &mut ratios);
+        ratios
+    }
+
+    pub fn same_topology(&self, other: &Shape) -> bool {
+        self.shape.signature() == other.signature()
+    }
+
+    pub fn matches(&self, other: &Shape, epsilon: f32) -> bool {
+        same_shape(&self.shape, other, epsilon)
+    }
+}
+
+fn equalize_shape(shape: &mut Shape) -> usize {
+    match shape {
+        Shape::Pane(_) => 1,
+        Shape::Split {
+            ratio,
+            first,
+            second,
+            ..
+        } => {
+            let first_leaves = equalize_shape(first);
+            let second_leaves = equalize_shape(second);
+            *ratio = first_leaves as f32 / (first_leaves + second_leaves) as f32;
+            first_leaves + second_leaves
+        }
+    }
+}
+
+fn set_ratio(shape: &mut Shape, path: &[bool], value: f32) -> bool {
+    let Shape::Split {
+        ratio,
+        first,
+        second,
+        ..
+    } = shape
+    else {
+        return false;
+    };
+    let Some((branch, rest)) = path.split_first() else {
+        *ratio = value;
+        return true;
+    };
+    set_ratio(if *branch { second } else { first }, rest, value)
+}
+
+fn collect_ratios(
+    shape: &Shape,
+    path: &mut Vec<bool>,
+    out: &mut Vec<(Vec<bool>, f32)>,
+) {
+    let Shape::Split {
+        ratio,
+        first,
+        second,
+        ..
+    } = shape
+    else {
+        return;
+    };
+    out.push((path.clone(), *ratio));
+    path.push(false);
+    collect_ratios(first, path, out);
+    path.pop();
+    path.push(true);
+    collect_ratios(second, path, out);
+    path.pop();
+}
+
+fn same_shape(expected: &Shape, actual: &Shape, epsilon: f32) -> bool {
+    match (expected, actual) {
+        (Shape::Pane(a), Shape::Pane(b)) => a == b,
+        (
+            Shape::Split {
+                side: a_side,
+                ratio: a_ratio,
+                first: a_first,
+                second: a_second,
+            },
+            Shape::Split {
+                side: b_side,
+                ratio: b_ratio,
+                first: b_first,
+                second: b_second,
+            },
+        ) => {
+            a_side == b_side
+                && (a_ratio - b_ratio).abs() <= epsilon
+                && same_shape(a_first, b_first, epsilon)
+                && same_shape(a_second, b_second, epsilon)
+        }
+        _ => false,
+    }
+}
+
 /// The arrangements Layout Tools offers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Arrangement {
@@ -87,23 +219,36 @@ impl Arrangement {
     /// `panes` is in current layout order; the relative order of the others is
     /// preserved so a rearrangement does not shuffle unrelated panes.
     pub fn plan(self, panes: &[String], main: Option<&str>) -> Option<Plan> {
+        self.spec(panes, main).map(|spec| spec.plan)
+    }
+
+    /// The final topology and proportions shown by the preview and applied by
+    /// the live operation.
+    pub fn spec(self, panes: &[String], main: Option<&str>) -> Option<LayoutSpec> {
         if panes.len() < 2 {
             return None;
         }
-        match self {
-            Arrangement::Columns => Some(chain(panes, Side::Right)),
-            Arrangement::Rows => Some(chain(panes, Side::Down)),
-            Arrangement::Grid => Some(grid(panes)),
-            Arrangement::MainLeft => Some(main_split(panes, main, Side::Right, Side::Down)),
+        let plan = match self {
+            Arrangement::Columns => chain(panes, Side::Right),
+            Arrangement::Rows => chain(panes, Side::Down),
+            Arrangement::Grid => grid(panes),
+            Arrangement::MainLeft => main_split(panes, main, Side::Right, Side::Down),
             Arrangement::MainRight => {
                 // Same shape as Main Left with the roles of the two sides
                 // reversed: the others form the first column, main the second.
                 let mut plan = main_split(panes, main, Side::Right, Side::Down);
                 plan = mirror(plan);
-                Some(plan)
+                plan
             }
-            Arrangement::MainTop => Some(main_split(panes, main, Side::Down, Side::Right)),
+            Arrangement::MainTop => main_split(panes, main, Side::Down, Side::Right),
+        };
+        let mut spec = LayoutSpec::equalized(plan);
+        if matches!(self, Arrangement::MainLeft | Arrangement::MainRight | Arrangement::MainTop) {
+            // Main occupies one whole half. Only the other half is divided
+            // evenly among the secondary panes.
+            let _ = set_ratio(&mut spec.shape, &[], 0.5);
         }
+        Some(spec)
     }
 }
 
@@ -389,5 +534,25 @@ mod tests {
     fn main_falls_back_to_the_first_pane_when_the_focus_is_unknown() {
         let plan = Arrangement::MainLeft.plan(&ids(3), Some("gone")).unwrap();
         assert_eq!(plan.anchor, "p1");
+    }
+
+    #[test]
+    fn main_keeps_half_the_tab_and_equalizes_only_the_secondary_side() {
+        let spec = Arrangement::MainLeft.spec(&ids(4), Some("p3")).unwrap();
+        assert_eq!(spec.ratios(), vec![(vec![], 0.5), (vec![true], 1.0 / 3.0), (vec![true, true], 0.5)]);
+    }
+
+    #[test]
+    fn columns_assign_equal_width_to_every_pane() {
+        let spec = Arrangement::Columns.spec(&ids(4), None).unwrap();
+        assert_eq!(spec.ratios(), vec![(vec![], 0.25), (vec![true], 1.0 / 3.0), (vec![true, true], 0.5)]);
+    }
+
+    #[test]
+    fn topology_comparison_does_not_confuse_ratios_with_structure() {
+        let spec = Arrangement::Columns.spec(&ids(3), None).unwrap();
+        let raw = spec.plan.simulate();
+        assert!(spec.same_topology(&raw));
+        assert!(!spec.matches(&raw, 0.001));
     }
 }
