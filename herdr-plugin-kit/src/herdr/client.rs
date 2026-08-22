@@ -83,6 +83,19 @@ impl Herdr {
         Ok(client)
     }
 
+    /// A client for a socket nothing is listening on.
+    ///
+    /// For tests of screens that only reach Herdr for a hint they can do
+    /// without — the Swap row asks for a neighbouring pane and falls back to
+    /// the pane list when the call fails.
+    #[doc(hidden)]
+    pub fn unreachable() -> Self {
+        Self {
+            path: PathBuf::from("/nonexistent/herdr.sock"),
+            next_id: RefCell::new(0),
+        }
+    }
+
     fn dial(&self) -> Result<UnixStream> {
         let stream = UnixStream::connect(&self.path).with_context(|| {
             format!(

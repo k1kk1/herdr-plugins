@@ -62,37 +62,69 @@ fn menu(
     let panes = layout.root.pane_ids();
     let preview_panes = preview_panes(herdr, source, &panes);
     let current = Shape::from_layout(&layout.root);
-    let current_preview = current
-        .clone()
-        .map(|shape| (shape, vec![source.pane_id.clone()]));
     // Zoom is a toggle, so its preview has to describe the state *after* the
     // key is taken, rather than merely showing the current split tree.
     let zoom_preview = if layout.zoomed {
-        current_preview.clone()
+        current
+            .clone()
+            .map(|shape| (shape, vec![source.pane_id.clone()]))
     } else {
         Some((Shape::pane(&source.pane_id), vec![source.pane_id.clone()]))
     };
+    let zoom_current = if layout.zoomed {
+        Some(Shape::pane(&source.pane_id))
+    } else {
+        current.clone()
+    };
+    let pane_legend = preview_panes
+        .iter()
+        .map(|pane| format!("{} {}", pane.number, short_label(&pane.label)))
+        .collect::<Vec<_>>()
+        .join("  ·  ");
 
     let mut menu = Menu::new("Layout Tools")
         .subtitle(format!(
-            "{} · {} pane{}",
+            "{} · {} pane{}{}",
             tab.label.as_deref().unwrap_or("this tab"),
             panes.len(),
-            if panes.len() == 1 { "" } else { "s" }
+            if panes.len() == 1 { "" } else { "s" },
+            if pane_legend.is_empty() {
+                String::new()
+            } else {
+                format!(" · {pane_legend}")
+            }
         ));
 
     menu.item(
         Row::item("Equalize")
             .hotkey("e")
             .secondary("すべての Pane を同じ大きさに")
-            .panels(preview_panels(current_preview.clone(), &preview_panes)),
+            .panels(transition_panels(
+                current.as_ref(),
+                current
+                    .clone()
+                    .map(|shape| (shape, vec![source.pane_id.clone()])),
+                &preview_panes,
+                &source.pane_id,
+                "均等化後",
+            )),
         Choice::Equalize,
     );
     menu.item(
         Row::item("Zoom current pane")
             .hotkey("z")
-            .secondary(label::pane_compact(source))
-            .panels(preview_panels(zoom_preview, &preview_panes)),
+            .secondary(if layout.zoomed {
+                "分割表示へ戻す".to_string()
+            } else {
+                label::pane_compact(source)
+            })
+            .panels(transition_panels(
+                zoom_current.as_ref(),
+                zoom_preview,
+                &preview_panes,
+                &source.pane_id,
+                "実行後",
+            )),
         Choice::Zoom,
     );
 
@@ -112,15 +144,18 @@ fn menu(
             arrangement.description().to_string()
         };
         menu.item(
-            Row::item(arrangement.title())
-                .hotkey(arrangement.hotkey())
-                .secondary(note)
-                .panels(preview_panels(
-                    arrangement_preview(arrangement, &panes, &source.pane_id),
-                    &preview_panes,
-                )),
-            Choice::Arrange(arrangement),
-        );
+                Row::item(arrangement.title())
+                    .hotkey(arrangement.hotkey())
+                    .secondary(note)
+                    .panels(transition_panels(
+                        current.as_ref(),
+                        arrangement_preview(arrangement, &panes, &source.pane_id),
+                        &preview_panes,
+                        &source.pane_id,
+                        "実行後",
+                    )),
+                Choice::Arrange(arrangement),
+            );
     }
 
     let saved = template::load();
@@ -138,9 +173,12 @@ fn menu(
             menu.item(
                 Row::item(name.clone())
                     .secondary(note)
-                    .panels(preview_panels(
+                    .panels(transition_panels(
+                        current.as_ref(),
                         saved_preview(layout, &panes, &source.pane_id),
                         &preview_panes,
+                        &source.pane_id,
+                        "実行後",
                     )),
                 Choice::Apply(name.clone()),
             );
@@ -152,7 +190,12 @@ fn menu(
         Row::item("Save this layout")
             .hotkey("s")
             .secondary("今の形に名前を付けて覚える")
-            .panels(preview_panels(current_preview, &preview_panes)),
+            .panels(current_panel(
+                current.as_ref(),
+                &preview_panes,
+                &source.pane_id,
+                "保存する形",
+            )),
         Choice::Save,
     );
     if !saved.is_empty() {
@@ -213,24 +256,51 @@ fn preview_panes(herdr: &Herdr, source: &Pane, pane_ids: &[String]) -> Vec<Previ
         .collect()
 }
 
-/// Turn a target shape into the labelled panel the terminal renderer draws.
-fn preview_panels(
-    preview: Option<(Shape, Vec<String>)>,
+/// Draw one real tab before and after an operation, using the same pane labels
+/// on both sides. This is the same visual grammar Pane Manager uses for a pane
+/// crossing between tabs; here the arrow describes one tab changing shape.
+fn transition_panels(
+    current: Option<&Shape>,
+    after: Option<(Shape, Vec<String>)>,
     panes: &[PreviewPane],
+    current_pane: &str,
+    after_caption: &str,
 ) -> Vec<Panel> {
-    let Some((shape, marked)) = preview else {
+    let (Some(current), Some((after, marked))) = (current, after) else {
         return Vec::new();
     };
-    let caption = panes
+    let labels: Vec<(String, String)> = panes
         .iter()
-        .map(|pane| format!("{} {}", pane.number, short_label(&pane.label)))
-        .collect::<Vec<_>>()
-        .join("  ·  ");
+        .map(|pane| (pane.id.clone(), pane.number.clone()))
+        .collect();
+    vec![
+        Panel::new("現在", current.clone())
+            .marking(vec![current_pane.to_string()])
+            .labeling(labels.clone()),
+        Panel::new(after_caption, after)
+            .marking(marked)
+            .labeling(labels),
+    ]
+}
+
+/// A single unchanged layout, for Save. Showing an identical right-hand panel
+/// would imply that Save rearranges the tab even though it only writes a file.
+fn current_panel(
+    current: Option<&Shape>,
+    panes: &[PreviewPane],
+    current_pane: &str,
+    caption: &str,
+) -> Vec<Panel> {
+    let Some(current) = current else {
+        return Vec::new();
+    };
     let labels = panes
         .iter()
         .map(|pane| (pane.id.clone(), pane.number.clone()))
         .collect();
-    vec![Panel::new(caption, shape).marking(marked).labeling(labels)]
+    vec![Panel::new(caption, current.clone())
+        .marking(vec![current_pane.to_string()])
+        .labeling(labels)]
 }
 
 fn short_label(label: &str) -> String {

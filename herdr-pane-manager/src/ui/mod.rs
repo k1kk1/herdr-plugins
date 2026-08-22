@@ -126,14 +126,14 @@ fn dispatch(
 }
 
 /// The key line, worded for whichever way round the settings have it.
-fn manager_footer(term: &Term, config: &Config) -> String {
+fn manager_footer(modified_enter: bool, config: &Config) -> String {
     let (plain, shifted) = match config.default_action {
         crate::config::DefaultAction::Quick => ("すぐ移動", "位置を指定"),
         crate::config::DefaultAction::Detailed => ("位置を指定", "すぐ移動"),
     };
     // Shift+letter needs no keyboard protocol; Shift+Enter does. Only promise
     // the one that will actually arrive.
-    let shift_key = if term.distinguishes_modified_enter() {
+    let shift_key = if modified_enter {
         "Shift+Enter / Shift+英字"
     } else {
         "Shift+英字"
@@ -182,12 +182,36 @@ fn manager_once(
     config: &Config,
     config_warning: Option<String>,
 ) -> Result<Step> {
+    let mut menu = manager_menu(
+        herdr,
+        snapshot,
+        config,
+        config_warning,
+        term.distinguishes_modified_enter(),
+    );
+    let Some(choice) = menu.run(term)? else {
+        return Ok(Step::Close);
+    };
+    manager_choice(term, herdr, snapshot, config, choice, &menu)
+}
+
+/// The landing screen, built but not run.
+///
+/// Separated so a test can read the rows: which of them appear, and whether a
+/// row's name promises a screen the key will actually open.
+fn manager_menu(
+    herdr: &Herdr,
+    snapshot: &Snapshot,
+    config: &Config,
+    config_warning: Option<String>,
+    modified_enter: bool,
+) -> Menu<Choice> {
     let mut menu = Menu::new("Pane Manager")
         .subtitle(source_line(snapshot, config))
         // The keys live here rather than beside the rows they apply to: a hint
         // repeated on every section is clutter, and one at the bottom is where
         // a reader looks for keys anyway.
-        .footer(manager_footer(term, config))
+        .footer(manager_footer(modified_enter, config))
         // Quick rows take Shift+Enter as "the same tab, but ask me where".
         .accept_also(&[Key::ShiftEnter])
         .no_preview("この操作は Pane の配置を変えません");
@@ -226,6 +250,14 @@ fn manager_once(
         menu.row(Row::separator());
     }
 
+    // `Move to…` promises a next screen. With the default action set to
+    // Quick the plain key does not open one, it moves the pane — so the
+    // ellipsis is a lie there, and the row is named for what the key does.
+    let more = |name: &str| match config.default_action {
+        crate::config::DefaultAction::Detailed => format!("{name}…"),
+        crate::config::DefaultAction::Quick => name.to_string(),
+    };
+
     // Each row names its default target. A key that acts immediately has to
     // say what it will do before it is pressed, or it is a trap.
     let next_tab = snapshot
@@ -245,7 +277,7 @@ fn manager_once(
 
     menu.item(
         illustrated(
-            Row::item("Move to…").hotkey("m").secondary(target(
+            Row::item(more("Move to")).hotkey("m").secondary(target(
                 &next_tab,
                 "へ現在の Pane を移す",
                 "新しい Tab へ現在の Pane を移す",
@@ -257,7 +289,7 @@ fn manager_once(
     );
     menu.item(
         illustrated(
-            Row::item("Swap with…")
+            Row::item(more("Swap with"))
                 .hotkey("s")
                 .secondary(target(&next_pane, "と入れ替える", "入れ替える相手を選ぶ")),
             match &partner {
@@ -270,7 +302,7 @@ fn manager_once(
     );
     menu.item(
         illustrated(
-            Row::item("Extract…")
+            Row::item(more("Extract"))
                 .hotkey("e")
                 .secondary("現在の Pane を新しい Tab へ切り出す"),
             operation_preview(&Choice::Extract, snapshot, config),
@@ -278,18 +310,23 @@ fn manager_once(
         ),
         Choice::Extract,
     );
-    menu.item(
-        illustrated(
-            Row::item("Fold into…").hotkey("f").secondary(target(
-                &next_tab,
-                "へこの Tab 全体を畳む",
-                "別 Tab がないため、畳む先を選ぶ",
-            )),
-            operation_preview(&Choice::Merge, snapshot, config),
-            snapshot,
-        ),
-        Choice::Merge,
-    );
+    // Fold moves this tab's panes into another one, so with no other tab
+    // there is nothing the row can do. It used to offer to choose a
+    // destination and then say there were none.
+    if next_tab.is_some() {
+        menu.item(
+            illustrated(
+                Row::item(more("Fold into")).hotkey("f").secondary(target(
+                    &next_tab,
+                    "へこの Tab 全体を畳む",
+                    String::new().as_str(),
+                )),
+                operation_preview(&Choice::Merge, snapshot, config),
+                snapshot,
+            ),
+            Choice::Merge,
+        );
+    }
 
     // Undo sits right under the operations it reverses, and only appears when
     // there is actually something to take back.
@@ -361,10 +398,18 @@ fn manager_once(
         menu.row(Row::note(format!("config: {warning}")));
     }
 
-    let Some(choice) = menu.run(term)? else {
-        return Ok(Step::Close);
-    };
+    menu
+}
 
+/// Act on the row the reader picked.
+fn manager_choice(
+    term: &mut Term,
+    herdr: &Herdr,
+    snapshot: &Snapshot,
+    config: &Config,
+    choice: Choice,
+    menu: &Menu<Choice>,
+) -> Result<Step> {
     // Shift means "that, but let me say where" — on a quick row it names the
     // tab and stops to ask, on `Move to…` it carries the same intent into the
     // flow so the placement step appears without asking for Shift twice.
@@ -1499,11 +1544,27 @@ fn legend(panels: &[Panel], snapshot: &Snapshot) -> Vec<String> {
             }
         }
     }
-    seen.iter()
+    let mut lines: Vec<String> = seen
+        .iter()
         .filter_map(|id| snapshot.pane(id))
         .take(MOST)
         .map(pane_line)
-        .collect()
+        .collect();
+
+    // What the filled box means, said with the fill itself rather than with a
+    // sentence: `░ p1`. The reader can see the shading; what they cannot see
+    // is which pane it stands for, and the line under it then says what that
+    // pane is running.
+    let filled: Vec<String> = panels
+        .iter()
+        .flat_map(|panel| panel.marked.iter())
+        .filter_map(|id| snapshot.pane(id))
+        .map(|pane| pane_number(&pane.clone()))
+        .collect();
+    if let Some(name) = filled.first() {
+        lines.insert(0, format!("{} {name}", herdr_plugin_kit::layout::HIGHLIGHT));
+    }
+    lines
 }
 
 /// A row whose picture comes with the names of what is in it.
@@ -2196,6 +2257,12 @@ mod spec_tests {
         }
     }
 
+    /// The rows the landing screen offers, without running it.
+    fn row_titles(snapshot: &Snapshot, config: &Config) -> Vec<String> {
+        let herdr = Herdr::unreachable();
+        manager_menu(&herdr, snapshot, config, None, true).item_titles()
+    }
+
     /// The signature of a row's picture, for the detail screens.
     fn drawn(panels: &[Panel]) -> Vec<String> {
         panels
@@ -2402,17 +2469,19 @@ mod spec_tests {
 
         let panels = operation_preview(&Choice::Merge, &snapshot, &Config::default());
         let lines = legend(&panels, &snapshot);
-        // Every pane once, in the order the picture introduces it, with the
-        // name a person recognises rather than the id alone.
-        assert_eq!(lines.len(), 3);
-        assert!(lines[0].starts_with("p5: "));
-        assert!(lines[0].contains("review"));
-        assert!(lines[0].ends_with("| codex"));
-        assert!(lines[1].starts_with("p1: "));
-        assert!(lines[1].ends_with("| claude"));
+        // The shading first, saying which pane it stands for, then every pane
+        // once in the order the picture introduces it — with the name a person
+        // recognises rather than the id alone.
+        assert_eq!(lines.len(), 4);
+        assert_eq!(lines[0], "░ p1");
+        assert!(lines[1].starts_with("p5: "));
+        assert!(lines[1].contains("review"));
+        assert!(lines[1].ends_with("| codex"));
+        assert!(lines[2].starts_with("p1: "));
+        assert!(lines[2].ends_with("| claude"));
         // pB has no agent, so it is named without one.
-        assert!(lines[2].starts_with("pB: "));
-        assert!(!lines[2].contains('|'));
+        assert!(lines[3].starts_with("pB: "));
+        assert!(!lines[3].contains('|'));
     }
 
     #[test]
@@ -2494,6 +2563,41 @@ mod spec_tests {
         let panel = &gather_panels(0, &many, &config)[0];
         assert!(panel.stacked);
         assert_eq!(panel.behind.as_deref(), Some(config.gather.tab_label.as_str()));
+    }
+
+    #[test]
+    fn a_row_only_promises_a_next_screen_when_the_key_opens_one() {
+        // With the default action set to Quick the plain key moves the pane;
+        // an ellipsis there says "a picker is coming" and none is.
+        let snapshot = testkit::session("t1: p5 | p1* ; t2: pB");
+        let quick = Config::default();
+        assert_eq!(quick.default_action, crate::config::DefaultAction::Quick);
+        assert!(row_titles(&snapshot, &quick)
+            .iter()
+            .all(|title| !title.ends_with('…')));
+
+        let detailed = Config {
+            default_action: crate::config::DefaultAction::Detailed,
+            ..Config::default()
+        };
+        assert!(row_titles(&snapshot, &detailed)
+            .iter()
+            .any(|title| title == "Move to…"));
+    }
+
+    #[test]
+    fn fold_is_not_offered_when_there_is_nowhere_to_fold_into() {
+        // It used to offer to choose a destination and then say there were
+        // none.
+        let alone = testkit::session("t1: p5 | p1*");
+        assert!(!row_titles(&alone, &Config::default())
+            .iter()
+            .any(|title| title.starts_with("Fold")));
+
+        let pair = testkit::session("t1: p5 | p1* ; t2: pB");
+        assert!(row_titles(&pair, &Config::default())
+            .iter()
+            .any(|title| title.starts_with("Fold")));
     }
 
     #[test]

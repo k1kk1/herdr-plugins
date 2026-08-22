@@ -214,6 +214,19 @@ impl<T: Clone> Menu<T> {
     }
 
     /// Text the user has typed, for callers that use it as a default name.
+    /// The visible name of every selectable row, in order.
+    ///
+    /// For tests that ask what a screen offers without running it.
+    #[doc(hidden)]
+    pub fn item_titles(&self) -> Vec<String> {
+        self.view
+            .rows
+            .iter()
+            .filter(|row| row.kind == super::term::RowKind::Item)
+            .map(|row| row.primary.clone())
+            .collect()
+    }
+
     pub fn query(&self) -> &str {
         self.filter.as_deref().unwrap_or("")
     }
