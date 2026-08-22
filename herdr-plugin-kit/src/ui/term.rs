@@ -169,6 +169,14 @@ impl Row {
         self
     }
 
+    /// Name what the boxes hold, under the picture.
+    pub fn legend(mut self, lines: Vec<String>) -> Self {
+        if let Some(preview) = self.preview.as_mut() {
+            preview.legend = lines;
+        }
+        self
+    }
+
     pub fn trailing(mut self, text: impl Into<String>) -> Self {
         self.trailing = Some(text.into());
         self
@@ -202,7 +210,18 @@ pub struct Panel {
     /// `None` draws the caption over an explicit "nothing left" box, which is
     /// what a tab that closes should look like.
     pub shape: Option<crate::layout::Shape>,
+    /// The tab's arrangement could not be read. Drawn as an outline with a
+    /// question mark rather than as a guess.
+    pub unreadable: bool,
     pub marked: Vec<String>,
+    /// Short identifiers written into the panes, e.g. `1`, `2`, `3`.
+    pub labels: Vec<(String, String)>,
+    /// Draw a second sheet behind the diagram, so the panel reads as a tab
+    /// that does not exist yet rather than as the one already on screen.
+    pub stacked: bool,
+    /// Name written into the sheet behind, when that sheet stands for a second
+    /// real tab rather than for depth.
+    pub behind: Option<String>,
 }
 
 impl Panel {
@@ -211,6 +230,22 @@ impl Panel {
             caption: caption.into(),
             shape: Some(shape),
             marked: Vec::new(),
+            labels: Vec::new(),
+            stacked: false,
+            behind: None,
+            unreadable: false,
+        }
+    }
+
+    /// A panel for a tab whose arrangement Herdr would not report.
+    ///
+    /// Drawing a single box instead — the old fallback — said "one pane" about
+    /// a tab that may have five. A picture that is merely unavailable is much
+    /// better than one that is wrong.
+    pub fn unreadable(caption: impl Into<String>) -> Self {
+        Self {
+            unreadable: true,
+            ..Self::gone(caption)
         }
     }
 
@@ -220,11 +255,40 @@ impl Panel {
             caption: caption.into(),
             shape: None,
             marked: Vec::new(),
+            labels: Vec::new(),
+            stacked: false,
+            behind: None,
+            unreadable: false,
         }
     }
 
     pub fn marking(mut self, marked: Vec<String>) -> Self {
         self.marked = marked;
+        self
+    }
+
+    /// Draw the diagram as the front of a stack of two sheets.
+    ///
+    /// A new tab and the current one otherwise look identical, and captions
+    /// cannot carry the difference: a tab created from a project directory is
+    /// named after it, so both sides of an Extract read the same word. The
+    /// second outline says "another tab" in a way a name cannot.
+    pub fn stacked(mut self) -> Self {
+        self.stacked = true;
+        self
+    }
+
+    /// Stack, and name the sheet behind — for an operation that really does
+    /// make two tabs.
+    pub fn behind(mut self, caption: impl Into<String>) -> Self {
+        self.stacked = true;
+        self.behind = Some(caption.into());
+        self
+    }
+
+    /// Put compact identifiers inside panes in the diagram.
+    pub fn labeling(mut self, labels: Vec<(String, String)>) -> Self {
+        self.labels = labels;
         self
     }
 }
@@ -237,11 +301,21 @@ impl Panel {
 #[derive(Debug, Clone)]
 pub struct Preview {
     pub panels: Vec<Panel>,
+    /// Lines printed under the boxes, naming what is in them.
+    ///
+    /// A box can hold `p5` and nothing more: a conversation title is long,
+    /// often CJK, and would push the walls out of true. The names go under the
+    /// picture instead, where they have a full line each and can be truncated
+    /// by display width rather than by character count.
+    pub legend: Vec<String>,
 }
 
 impl Preview {
     pub fn new(panels: Vec<Panel>) -> Self {
-        Self { panels }
+        Self {
+            panels,
+            legend: Vec::new(),
+        }
     }
 }
 
@@ -335,6 +409,31 @@ pub struct Term {
     scroll: usize,
 }
 
+/// Whether the terminal can report Shift+Enter, decided without a round trip
+/// where that is possible.
+///
+/// `supports_keyboard_enhancement` writes a query and waits for an answer, and
+/// crossterm gives it two full seconds before giving up. That is the whole of
+/// this plugin's startup time: measured inside a Herdr pane, the first frame
+/// took 2014ms while every piece of real work — panes, tabs, layouts, the
+/// preview — came to about 6ms.
+///
+/// Herdr renders the pane itself and does speak the protocol, so inside Herdr
+/// the answer is known in advance and the query is pure cost. `HERDR_KEYBOARD`
+/// is the escape hatch if that ever stops being true, and anywhere else the
+/// question is still asked the slow way.
+fn supports_enhancement() -> bool {
+    match std::env::var("HERDR_KEYBOARD").ok().as_deref() {
+        Some("enhanced") => return true,
+        Some("plain") => return false,
+        _ => {}
+    }
+    if std::env::var_os("HERDR_ENV").is_some() {
+        return true;
+    }
+    matches!(terminal::supports_keyboard_enhancement(), Ok(true))
+}
+
 impl Term {
     pub fn open() -> Result<Self> {
         terminal::enable_raw_mode()?;
@@ -345,7 +444,7 @@ impl Term {
         // indistinguishable from Enter: a plain terminal sends the same CR for
         // both. Ghostty, kitty and WezTerm answer yes; Terminal.app does not,
         // and there the Shift+Enter bindings simply fall back to Enter.
-        let enhanced = matches!(terminal::supports_keyboard_enhancement(), Ok(true));
+        let enhanced = supports_enhancement();
         if enhanced {
             queue!(
                 out,
@@ -545,22 +644,7 @@ impl Term {
             let top = line + 1;
             let room = height.saturating_sub(1).saturating_sub(top) as usize;
             let lines = match (&view.preview, room >= 5) {
-                (Some(preview), true) => {
-                    // One line goes to the captions above the boxes.
-                    let cells_h = (room - 2) / 2;
-                    let lines = 2 * cells_h + 1;
-                    // Shaped like a screen rather than stretched to the pane.
-                    // A terminal cell is about twice as tall as it is wide, so
-                    // 16:9 on screen is roughly 3.5 columns per line — running
-                    // to the full width instead gives a letterbox nothing on a
-                    // real monitor looks like.
-                    let panels = preview.panels.len().max(1);
-                    let arrows = panels.saturating_sub(1) * ARROW.chars().count();
-                    let budget = width.saturating_sub(4).saturating_sub(arrows);
-                    let across = (lines * 32 / 9).min(budget / panels);
-                    let cells_w = across.saturating_sub(1) / 2;
-                    draw_panels(&preview.panels, cells_w, cells_h)
-                }
+                (Some(preview), true) => preview_lines(preview, room, width as usize),
                 _ => vec![view.no_preview.clone()],
             };
             for (offset, text) in lines.iter().enumerate() {
@@ -569,8 +653,21 @@ impl Term {
                     break;
                 }
                 queue!(self.out, cursor::MoveTo(0, row), Print("  "))?;
+                // A label written inside a filled pane is still part of that
+                // pane, so it takes the fill's colour. Colouring only the fill
+                // character left the name as a dark hole in the middle of a
+                // bright rectangle — it read as a gap rather than as a name.
+                //
+                // Walls close the run: a label in the *unfilled* pane next
+                // door must stay dim, or every pane would look selected.
+                let mut in_fill = false;
                 for ch in truncate(text, width.saturating_sub(2)).chars() {
-                    let colour = if ch == crate::layout::HIGHLIGHT {
+                    if is_wall(ch) {
+                        in_fill = false;
+                    } else if ch == crate::layout::HIGHLIGHT {
+                        in_fill = true;
+                    }
+                    let colour = if in_fill {
                         view.accent
                     } else {
                         Color::DarkGrey
@@ -873,6 +970,15 @@ fn secondary_column(rows: &[Row], width: usize) -> usize {
     }
 }
 
+/// Box-drawing characters that bound a pane in a diagram.
+fn is_wall(ch: char) -> bool {
+    matches!(
+        ch,
+        '│' | '─' | '┌' | '┐' | '└' | '┘' | '├' | '┤' | '┬' | '┴' | '┼'
+            | '╎' | '╌'
+    )
+}
+
 /// Drawn between panels: the operation reads left to right.
 const ARROW: &str = "  →  ";
 
@@ -880,15 +986,93 @@ const ARROW: &str = "  →  ";
 ///
 /// Captions sit on their own line above the boxes rather than beside them, so
 /// a long caption cannot push the diagrams out of alignment with each other.
+/// Lay a preview out in the rows it has been given.
+///
+/// Separated from drawing so it can be checked: the invariant is that the
+/// result never uses more than `room` lines and never runs wider than the
+/// pane, whatever the panels hold.
+#[doc(hidden)]
+pub fn preview_lines_for_test(preview: &Preview, room: usize, width: usize) -> Vec<String> {
+    preview_lines(preview, room, width)
+}
+
+fn preview_lines(preview: &Preview, room: usize, width: usize) -> Vec<String> {
+    // Everything that shares the space is taken off the top, and the boxes get
+    // what is left. Drawing first and hoping it fits is how the sheet behind
+    // and the last line of the legend ended up below the bottom of the pane.
+    //
+    // In the very shortest pane there is no row to spare for the sheet behind,
+    // and a box drawn one row shorter would not be a box: the stack is the
+    // part that gives way. The captions cost nothing either way — they are
+    // written into the frames themselves.
+    let stacked = preview.panels.iter().any(|panel| panel.stacked) && room > SMALLEST_BOX;
+    let reserved = usize::from(stacked);
+
+    // The boxes are never drawn smaller than `SMALLEST_BOX` rows: the drawing
+    // code clamps there, so budgeting for less does not shrink the picture, it
+    // just draws part of it off the screen. The legend takes what is spare,
+    // and is dropped entirely when nothing is.
+    let spare = room.saturating_sub(reserved).saturating_sub(SMALLEST_BOX);
+    let legend: Vec<String> = preview.legend.iter().take(spare).cloned().collect();
+    let room = room.saturating_sub(reserved).saturating_sub(legend.len());
+
+    let cells_h = (room.saturating_sub(1) / 2).max(SMALLEST_CELLS);
+    let rows = 2 * cells_h + 1;
+    // Shaped like a screen rather than stretched to the pane. A terminal cell
+    // is about twice as tall as it is wide, so 16:9 on screen is roughly 3.5
+    // columns per line — running to the full width instead gives a letterbox
+    // nothing on a real monitor looks like.
+    let count = preview.panels.len().max(1);
+    let arrows = count.saturating_sub(1) * ARROW.chars().count();
+    let budget = width.saturating_sub(4).saturating_sub(arrows);
+    let across = (rows * 32 / 9).min(budget / count);
+    let cells_w = across.saturating_sub(1) / 2;
+
+    let panels: Vec<Panel> = preview
+        .panels
+        .iter()
+        .map(|panel| Panel {
+            stacked: panel.stacked && stacked,
+            ..panel.clone()
+        })
+        .collect();
+    let mut lines = draw_panels(&panels, cells_w, cells_h);
+    lines.extend(legend);
+    lines
+}
+
 fn draw_panels(panels: &[Panel], cells_w: usize, cells_h: usize) -> Vec<String> {
     let drawn: Vec<Vec<String>> = panels
         .iter()
         .map(|panel| match &panel.shape {
+            // Too many panes for the space: below this the rasteriser drops
+            // some of them, and a diagram missing three of ten boxes still
+            // looks like a complete diagram. Say the number instead of drawing
+            // a tab that is not the reader's tab.
+            Some(shape) if !shape.renders_in(cells_w, cells_h) => centre(
+                blank_box(cells_w, cells_h),
+                &format!("{} panes", shape.pane_ids().len()),
+            ),
             Some(shape) => {
                 let marked: Vec<&str> = panel.marked.iter().map(String::as_str).collect();
-                shape.diagram_marking(cells_w, cells_h, &marked)
+                let labels: Vec<(&str, &str)> = panel
+                    .labels
+                    .iter()
+                    .map(|(pane, label)| (pane.as_str(), label.as_str()))
+                    .collect();
+                shape.diagram_marking_labeled(cells_w, cells_h, &marked, &labels)
             }
+            None if panel.unreadable => centre(blank_box(cells_w, cells_h), "?"),
             None => empty_box(cells_w, cells_h),
+        })
+        .zip(panels)
+        .map(|(lines, panel)| {
+            let lines = title(lines, &panel.caption);
+            if panel.stacked {
+                stack(lines, panel.behind.as_deref())
+            } else {
+                lines
+            }
         })
         .collect();
 
@@ -897,13 +1081,7 @@ fn draw_panels(panels: &[Panel], cells_w: usize, cells_h: usize) -> Vec<String> 
         .map(|lines| lines.iter().map(|l| columns(l)).max().unwrap_or(0))
         .collect();
 
-    let mut out = vec![panels
-        .iter()
-        .zip(&widths)
-        .map(|(panel, width)| pad(&truncate(&panel.caption, *width), *width))
-        .collect::<Vec<_>>()
-        .join(&" ".repeat(ARROW.chars().count()))];
-
+    let mut out = Vec::new();
     let height = drawn.iter().map(Vec::len).max().unwrap_or(0);
     // The arrow belongs on the middle line, where the eye is.
     let middle = height / 2;
@@ -923,15 +1101,135 @@ fn draw_panels(panels: &[Panel], cells_w: usize, cells_h: usize) -> Vec<String> 
     out
 }
 
+/// Put a second sheet behind a diagram, offset up and to the left.
+///
+/// Only the back sheet's top edge and left wall are ever visible; the rest is
+/// covered by the front one. That is what makes it read as depth rather than
+/// as two diagrams — a whole second outline beside the first would just be
+/// another tab, which is the opposite of what this says.
+fn stack(front: Vec<String>, behind: Option<&str>) -> Vec<String> {
+    let Some(width) = front.iter().map(|line| columns(line)).max() else {
+        return front;
+    };
+    if front.len() < 3 || width < 3 {
+        return front;
+    }
+    let mut out = Vec::with_capacity(front.len() + 1);
+    let back = format!("\u{250c}{}\u{2510}", "\u{2500}".repeat(width - 2));
+    out.push(match behind {
+        Some(name) => write_title(&back, name),
+        None => back,
+    });
+    let last = front.len() - 1;
+    for (row, line) in front.into_iter().enumerate() {
+        // The back sheet's bottom-left corner sits one row above the front's,
+        // which is the only place its bottom edge is not hidden.
+        let edge = if row + 1 == last { '\u{2514}' } else { '\u{2502}' };
+        let edge = if row == last { ' ' } else { edge };
+        out.push(format!("{edge}{line}"));
+    }
+    out
+}
+
+/// Write a panel's name into its own top border.
+///
+/// A caption on a line of its own reads as a heading over a picture; written
+/// into the frame it reads as the tab's own name, which is what it is — and it
+/// is the only way two stacked sheets can each say what they are, since there
+/// is one line above them and two names to put there.
+fn title(mut lines: Vec<String>, caption: &str) -> Vec<String> {
+    if caption.is_empty() {
+        return lines;
+    }
+    if let Some(top) = lines.first_mut() {
+        *top = write_title(top, caption);
+    }
+    lines
+}
+
+/// Overwrite a border's dashes with `  name  `, two cells in from the corner.
+///
+/// Only dashes are consumed, and only while they last: a name longer than the
+/// frame is cut rather than pushing the corner out of place, because every
+/// line of the diagram has to keep the same width or the walls stop lining up.
+fn write_title(border: &str, name: &str) -> String {
+    const INDENT: usize = 3;
+    let cells: Vec<char> = border.chars().collect();
+    let room = cells.len().saturating_sub(INDENT + 2);
+    if room < 3 {
+        return border.to_string();
+    }
+    let text = truncate(name, room);
+    let mut out = String::new();
+    let mut column = 0usize;
+    let mut written = 0usize;
+    let mut taken = 0usize;
+    for ch in cells {
+        if column >= INDENT && written < columns(&text) {
+            // One dash per column the name occupies, so a wide character eats
+            // two of them and the border keeps its length.
+            if taken == 0 {
+                out.push_str(&text);
+            }
+            taken += 1;
+            written += 1;
+            column += 1;
+            continue;
+        }
+        out.push(ch);
+        column += 1;
+    }
+    out
+}
+
+/// Write one short string in the middle of a drawn box.
+fn centre(mut lines: Vec<String>, text: &str) -> Vec<String> {
+    let row = lines.len() / 2;
+    let Some(line) = lines.get_mut(row) else {
+        return lines;
+    };
+    let width = columns(line);
+    let start = width.saturating_sub(columns(text)) / 2;
+    let mut out = String::new();
+    for (column, ch) in line.chars().enumerate() {
+        if column == start {
+            out.push_str(text);
+        } else if column > start && column < start + text.chars().count() {
+            continue;
+        } else {
+            out.push(ch);
+        }
+    }
+    *line = out;
+    lines
+}
+
 /// A dashed outline, for a tab that will not be there afterwards.
 fn empty_box(cells_w: usize, cells_h: usize) -> Vec<String> {
+    outline(cells_w, cells_h, '╌', '╎')
+}
+
+/// A solid outline with nothing in it, for a tab that stays but cannot be
+/// drawn — too many panes for the space, or a layout Herdr would not report.
+///
+/// Solid rather than dashed on purpose: dashes are this preview's word for
+/// "gone", and a tab the reader still has must not wear it.
+fn blank_box(cells_w: usize, cells_h: usize) -> Vec<String> {
+    outline(cells_w, cells_h, '─', '│')
+}
+
+fn outline(cells_w: usize, cells_h: usize, horizontal: char, vertical: char) -> Vec<String> {
     let width = 2 * cells_w.max(2) + 1;
     let height = 2 * cells_h.max(2) + 1;
-    let mut out = vec![format!("┌{}┐", "╌".repeat(width.saturating_sub(2)))];
+    let bar = horizontal.to_string().repeat(width.saturating_sub(2));
+    let mut out = vec![format!("┌{bar}┐")];
     for _ in 1..height.saturating_sub(1) {
-        out.push(format!("╎{}╎", " ".repeat(width.saturating_sub(2))));
+        out.push(format!(
+            "{vertical}{}{vertical}",
+            " ".repeat(width.saturating_sub(2))
+        ));
     }
-    out.push(format!("└{}┘", "╌".repeat(width.saturating_sub(2))));
+    out.push(format!("└{bar}┘"));
     out
 }
 
@@ -942,6 +1240,14 @@ fn pad(text: &str, width: usize) -> String {
 
 /// Smallest preview worth drawing; the list may not take these lines.
 const PREVIEW_MIN: usize = 6;
+
+/// The fewest cells a diagram is ever drawn at, and the rows that costs.
+///
+/// `Shape::diagram` clamps to two cells, so asking for one still produces five
+/// lines. Budgeting for fewer does not shrink the picture — it just draws part
+/// of it past the bottom of the pane.
+const SMALLEST_CELLS: usize = 2;
+const SMALLEST_BOX: usize = 2 * SMALLEST_CELLS + 1;
 
 /// Display width, counting CJK as two columns.
 fn columns(text: &str) -> usize {
@@ -970,24 +1276,7 @@ fn truncate(text: &str, width: usize) -> String {
     out
 }
 
-/// Rough East-Asian-width check; good enough to stop wide agent titles from
-/// wrapping and corrupting the picker layout.
-fn char_width(ch: char) -> usize {
-    let c = ch as u32;
-    let wide = (0x1100..=0x115F).contains(&c)
-        || (0x2E80..=0xA4CF).contains(&c)
-        || (0xAC00..=0xD7A3).contains(&c)
-        || (0xF900..=0xFAFF).contains(&c)
-        || (0xFE30..=0xFE6F).contains(&c)
-        || (0xFF00..=0xFF60).contains(&c)
-        || (0xFFE0..=0xFFE6).contains(&c)
-        || (0x1F300..=0x1FAFF).contains(&c);
-    if wide {
-        2
-    } else {
-        1
-    }
-}
+use crate::layout::char_width;
 
 #[cfg(test)]
 mod tests {
@@ -1171,3 +1460,168 @@ mod tests {
     }
 }
 
+#[cfg(test)]
+mod stack_tests {
+    use super::*;
+
+    #[test]
+    fn a_stacked_panel_shows_a_second_sheet_behind_the_first() {
+        let shape = crate::layout::Shape::pane("p1");
+        let front = shape.diagram_marking_labeled(8, 3, &["p1"], &[("p1", "p1")]);
+        let width = front.iter().map(|l| columns(l)).max().unwrap();
+        let stacked = stack(front.clone(), None);
+
+        // One row taller and one column wider: the sheet behind peeks out at
+        // the top and down the left.
+        assert_eq!(stacked.len(), front.len() + 1);
+        assert_eq!(columns(&stacked[0]), width);
+        assert!(stacked[0].starts_with('\u{250c}') && stacked[0].ends_with('\u{2510}'));
+        // Every original line is still there, shifted right by the back wall.
+        for (row, line) in front.iter().enumerate() {
+            assert!(stacked[row + 1].ends_with(line), "row {row}");
+        }
+        // The back sheet closes one row above the front's bottom edge.
+        assert!(stacked[stacked.len() - 2].starts_with('\u{2514}'));
+        assert!(stacked[stacked.len() - 1].starts_with(' '));
+    }
+
+    #[test]
+    fn a_diagram_too_small_to_stack_is_left_alone() {
+        let front = vec!["ab".to_string(), "cd".to_string()];
+        assert_eq!(stack(front.clone(), None), front);
+    }
+}
+
+#[cfg(test)]
+mod title_tests {
+    use super::*;
+
+    fn boxed() -> Vec<String> {
+        crate::layout::Shape::pane("p1").diagram_marking_labeled(9, 3, &[], &[])
+    }
+
+    #[test]
+    fn a_name_is_written_into_the_top_border() {
+        let lines = title(boxed(), "herdr-plugins");
+        assert!(lines[0].starts_with("\u{250c}\u{2500}\u{2500}herdr-plugins"));
+        assert!(lines[0].ends_with('\u{2510}'));
+        // Every line keeps its width, or the walls stop lining up.
+        let width = columns(&lines[0]);
+        assert!(lines.iter().all(|line| columns(line) == width));
+    }
+
+    #[test]
+    fn a_name_too_long_for_the_frame_is_cut_rather_than_widening_it() {
+        let plain = boxed();
+        let lines = title(plain.clone(), "a-very-long-project-name-indeed");
+        assert_eq!(columns(&lines[0]), columns(&plain[0]));
+        assert!(lines[0].ends_with('\u{2510}'));
+    }
+
+    #[test]
+    fn two_stacked_sheets_each_carry_their_own_name() {
+        // One line above the boxes, two names to put there: the frames are the
+        // only place both can be said.
+        let lines = stack(title(boxed(), "dotfiles"), Some("herdr-plugins"));
+        assert!(lines[0].contains("herdr-plugins"));
+        assert!(lines[1].contains("dotfiles"));
+        assert!(!lines[0].contains("dotfiles"));
+    }
+
+    #[test]
+    fn an_unnamed_sheet_behind_is_plain_depth() {
+        let lines = stack(title(boxed(), "dotfiles"), None);
+        assert!(lines[0].chars().all(|ch| "\u{250c}\u{2500}\u{2510}".contains(ch)));
+    }
+}
+
+#[cfg(test)]
+mod crowding_tests {
+    use super::*;
+    use crate::layout::{Shape, Side};
+
+    fn many(panes: usize) -> Shape {
+        let mut shape = Shape::pane("p0");
+        for n in 1..panes {
+            shape.split(
+                &format!("p{}", n - 1),
+                &format!("p{n}"),
+                if n % 2 == 0 { Side::Down } else { Side::Right },
+            );
+        }
+        shape
+    }
+
+    #[test]
+    fn a_tab_with_more_panes_than_the_space_holds_says_so() {
+        let panel = Panel::new("busy", many(10));
+        let lines = draw_panels(&[panel], 12, 3);
+        assert!(lines.iter().any(|line| line.contains("10 panes")));
+        // Still a box, still the tab's name in its border.
+        assert!(lines[0].contains("busy"));
+    }
+
+    #[test]
+    fn a_crowded_preview_keeps_every_line_the_same_width() {
+        for cells_h in 2..8 {
+            let panel = Panel::new("busy", many(10)).labeling(
+                (0..10)
+                    .map(|n| (format!("p{n}"), format!("p{n}")))
+                    .collect(),
+            );
+            let lines = draw_panels(&[panel], 12, cells_h);
+            let width = columns(&lines[0]);
+            for line in &lines {
+                assert_eq!(columns(line), width, "cells_h {cells_h}: {line}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_preview_never_uses_more_rows_than_it_was_given() {
+        // The sheet behind and the last line of the legend used to be drawn
+        // past the bottom of the pane, because the space was divided up after
+        // the picture had already been sized.
+        for panes in [1usize, 2, 4, 10] {
+            for legend in 0..6 {
+                for stacked in [false, true] {
+                    for room in 5..24 {
+                        let mut panel = Panel::new("tab", many(panes));
+                        if stacked {
+                            panel = panel.behind("other");
+                        }
+                        let mut preview = Preview::new(vec![panel]);
+                        preview.legend =
+                            (0..legend).map(|n| format!("p{n}: something")).collect();
+                        let lines = preview_lines(&preview, room, 80);
+                        assert!(
+                            lines.len() <= room,
+                            "{panes} panes, legend {legend}, stacked {stacked}, room {room}: {} lines",
+                            lines.len()
+                        );
+                        for line in &lines {
+                            assert!(columns(line) <= 80, "too wide: {line}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_pane_too_short_for_a_legend_drops_it_rather_than_the_picture() {
+        let mut preview = Preview::new(vec![Panel::new("tab", many(2))]);
+        preview.legend = (0..4).map(|n| format!("p{n}: something")).collect();
+        // Five rows is exactly one box and nothing else.
+        assert_eq!(preview_lines(&preview, 5, 80).len(), 5);
+        // Room for the box and two names.
+        assert_eq!(preview_lines(&preview, 7, 80).len(), 7);
+    }
+
+    #[test]
+    fn a_tab_that_does_fit_is_drawn_normally() {
+        let panel = Panel::new("calm", many(3));
+        let lines = draw_panels(&[panel], 12, 6);
+        assert!(!lines.iter().any(|line| line.contains("panes")));
+    }
+}

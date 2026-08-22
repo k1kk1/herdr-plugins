@@ -222,6 +222,28 @@ fn junction(up: bool, down: bool, left: bool, right: bool) -> char {
 }
 
 /// A split tree, reduced to the parts that decide whether two layouts match.
+/// Rough East-Asian-width check: how many screen columns a character takes.
+///
+/// Both the diagrams and the picker need it, and they must agree — a label
+/// measured one way and a line padded the other is exactly how a wall ends up
+/// in the wrong column.
+pub fn char_width(ch: char) -> usize {
+    let c = ch as u32;
+    let wide = (0x1100..=0x115F).contains(&c)
+        || (0x2E80..=0xA4CF).contains(&c)
+        || (0xAC00..=0xD7A3).contains(&c)
+        || (0xF900..=0xFAFF).contains(&c)
+        || (0xFE30..=0xFE6F).contains(&c)
+        || (0xFF00..=0xFF60).contains(&c)
+        || (0xFFE0..=0xFFE6).contains(&c)
+        || (0x1F300..=0x1FAFF).contains(&c);
+    if wide {
+        2
+    } else {
+        1
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Shape {
     Pane(String),
@@ -343,6 +365,87 @@ impl Shape {
                 out.push(line);
             }
         }
+        out
+    }
+
+    /// The marked diagram with a short identifier centred in each pane.
+    ///
+    /// A split tree ordinarily only says that regions exist. Numbering those
+    /// regions lets an operation preview answer which live pane will occupy
+    /// each region afterwards.
+    pub fn diagram_marking_labeled(
+        &self,
+        width: usize,
+        height: usize,
+        highlight: &[&str],
+        labels: &[(&str, &str)],
+    ) -> Vec<String> {
+        let width = width.max(2);
+        let height = height.max(2);
+        let mut out = self.diagram_marking(width, height, highlight);
+        let mut grid = vec![vec![0usize; width]; height];
+        let mut next = 0usize;
+        self.rasterise(&mut grid, 0, 0, width, height, &mut next);
+
+        for (pane, label) in labels {
+            let mut seen = 0usize;
+            let Some(id) = self.find(pane, &mut seen) else {
+                continue;
+            };
+            let mut min_x = width;
+            let mut max_x = 0usize;
+            let mut min_y = height;
+            let mut max_y = 0usize;
+            let mut found = false;
+            for (y, row) in grid.iter().enumerate() {
+                for (x, cell) in row.iter().enumerate() {
+                    if *cell == id {
+                        found = true;
+                        min_x = min_x.min(x);
+                        max_x = max_x.max(x);
+                        min_y = min_y.min(y);
+                        max_y = max_y.max(y);
+                    }
+                }
+            }
+            // A pane squeezed out of the raster has no box to write in, and
+            // the bounds are still their starting values — `max_x - min_x`
+            // then underflows. Ten panes in a preview six cells tall is not a
+            // hypothetical: it is what a busy tab looks like.
+            if !found {
+                continue;
+            }
+
+            // Budgeted by display width, not by character count. A CJK
+            // character fills one cell of the line but two columns of the
+            // screen, so taking `available` *characters* made the row wider
+            // than every other row and pushed the walls out of line.
+            // A pane `n` cells wide is `2n - 1` columns of interior: the last
+            // column of the last cell is its right-hand wall. Budgeting the
+            // full `2n` let a label in a one-cell pane overwrite that wall and
+            // run into its neighbour.
+            let available = 2 * (max_x - min_x + 1) - 1;
+            // All of it or none of it. These labels are identifiers, and half
+            // an identifier is not a shorter answer — `p4`, `p6` and `p9` all
+            // cut down to `p`. A pane too small to name is named in the list
+            // under the picture instead.
+            let used: usize = label.chars().map(char_width).sum();
+            if used == 0 || used > available {
+                continue;
+            }
+            let text: Vec<char> = label.chars().collect();
+            let row = 2 * ((min_y + max_y) / 2) + 1;
+            let start = 2 * min_x + 1 + (available - used) / 2;
+            let mut line: Vec<char> = out[row].chars().collect();
+            if start + used > line.len() {
+                continue;
+            }
+            // `used` cells make way for `text.len()` characters — the same
+            // number for ASCII, one fewer per wide character.
+            line.splice(start..start + used, text);
+            out[row] = line.into_iter().collect();
+        }
+
         out
     }
 
@@ -471,6 +574,22 @@ impl Shape {
     }
 
     /// Compact form for assertions and debugging: `(r p1 (d p2 p3))`.
+    /// Whether every pane would get at least one cell at this size.
+    ///
+    /// Below it the picture is not merely cramped, it is wrong: panes vanish
+    /// from a diagram that still looks complete, and the reader counts boxes
+    /// that are not there. Callers draw a placeholder instead.
+    pub fn renders_in(&self, width: usize, height: usize) -> bool {
+        let width = width.max(2);
+        let height = height.max(2);
+        let mut grid = vec![vec![0usize; width]; height];
+        let mut next = 0usize;
+        self.rasterise(&mut grid, 0, 0, width, height, &mut next);
+        let drawn: std::collections::HashSet<usize> =
+            grid.iter().flatten().copied().filter(|id| *id > 0).collect();
+        drawn.len() == self.pane_ids().len()
+    }
+
     pub fn signature(&self) -> String {
         match self {
             Shape::Pane(id) => id.clone(),
@@ -643,6 +762,20 @@ mod sketch_tests {
         assert!(lines.iter().all(|l| !l.contains(HIGHLIGHT)));
     }
 
+    #[test]
+    fn labels_identify_each_pane_inside_their_own_regions() {
+        let shape = split(Side::Right, Shape::pane("left"), Shape::pane("right"));
+        let lines = shape.diagram_marking_labeled(
+            6,
+            2,
+            &["left"],
+            &[("left", "1"), ("right", "2")],
+        );
+        assert!(lines[1].contains('1'), "{lines:?}");
+        assert!(lines[1].contains('2'), "{lines:?}");
+        assert!(lines[1].find('1') < lines[1].find('2'), "{lines:?}");
+    }
+
     fn grid() -> Shape {
         split(
             Side::Right,
@@ -732,3 +865,74 @@ mod sketch_tests {
     }
 }
 
+#[cfg(test)]
+mod label_width_tests {
+    use super::*;
+
+    fn width(line: &str) -> usize {
+        line.chars().map(char_width).sum()
+    }
+
+    #[test]
+    fn a_wide_label_does_not_push_the_walls_out_of_line() {
+        let mut shape = Shape::pane("a");
+        shape.split("a", "b", Side::Right);
+        let lines = shape.diagram_marking_labeled(8, 3, &[], &[("a", "相手"), ("b", "p1")]);
+        let expected = width(&lines[0]);
+        for (row, line) in lines.iter().enumerate() {
+            assert_eq!(width(line), expected, "row {row}: {line}");
+        }
+        assert!(lines.iter().any(|line| line.contains("相手")));
+    }
+
+    #[test]
+    fn a_label_too_wide_for_its_pane_is_left_out_rather_than_cut() {
+        // Half an identifier is not a shorter identifier.
+        let shape = Shape::pane("a");
+        let plain = shape.diagram_marking_labeled(3, 2, &[], &[]);
+        let long = shape.diagram_marking_labeled(3, 2, &[], &[("a", "日本語のとても長いタイトル")]);
+        assert_eq!(plain, long);
+    }
+
+    #[test]
+    fn a_label_never_overwrites_the_wall_of_a_narrow_pane() {
+        // A pane one cell wide has one column of interior. `p9` needs two, so
+        // it is left out; writing it took the right-hand wall with it.
+        let mut shape = Shape::pane("a");
+        for n in 1..6 {
+            shape.split(&format!("p{}", n - 1), &format!("p{n}"), Side::Right);
+        }
+        let labels: Vec<(String, String)> = (0..6).map(|n| (format!("p{n}"), format!("p{n}"))).collect();
+        let refs: Vec<(&str, &str)> = labels.iter().map(|(a, b)| (a.as_str(), b.as_str())).collect();
+        let lines = shape.diagram_marking_labeled(6, 2, &[], &refs);
+        let walls = lines[0].chars().filter(|c| "\u{252c}\u{250c}\u{2510}".contains(*c)).count();
+        for line in &lines[1..lines.len() - 1] {
+            assert_eq!(
+                line.chars().filter(|c| *c == '\u{2502}').count(),
+                walls,
+                "{line}"
+            );
+        }
+    }
+}
+
+
+#[cfg(test)]
+mod crowding_demo {
+    use super::*;
+    #[test]
+    fn show() {
+        let mut shape = Shape::pane("p0");
+        for n in 1..10 {
+            shape.split(&format!("p{}", n - 1), &format!("p{n}"), if n % 2 == 0 { Side::Down } else { Side::Right });
+        }
+        let labels: Vec<(String, String)> = (0..10).map(|n| (format!("p{n}"), format!("p{n}"))).collect();
+        let refs: Vec<(&str, &str)> = labels.iter().map(|(a, b)| (a.as_str(), b.as_str())).collect();
+        for h in [2usize, 3, 6] {
+            println!("--- cells {h}");
+            for line in shape.diagram_marking_labeled(12, h, &["p9"], &refs) {
+                println!("{line}");
+            }
+        }
+    }
+}

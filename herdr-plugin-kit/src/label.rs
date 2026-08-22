@@ -75,12 +75,17 @@ pub fn pane_detail(pane: &Pane) -> Option<String> {
 
 /// Auto-generated label for a tab created by Extract (spec §5.1).
 ///
-/// Returns `None` when nothing better than Herdr's own `Tab <number>` default
-/// is available, in which case the caller should let Herdr name the tab.
+/// The working directory is the stable default: terminal titles change with
+/// the foreground command, while a project directory remains recognisable in
+/// the tab bar. Returns `None` when neither is available, in which case the
+/// caller should let Herdr name the tab.
 pub fn new_tab_label(pane: &Pane) -> Option<String> {
-    non_empty(pane.label.as_ref())
+    // The foreground directory reflects where the user is working now; a
+    // pane's launch directory can be stale after `cd` or an agent handoff.
+    cwd_basename(pane.foreground_cwd.as_deref())
+        .or_else(|| cwd_basename(pane.cwd.as_deref()))
+        .or_else(|| non_empty(pane.label.as_ref()))
         .or_else(|| terminal_title(pane))
-        .or_else(|| project(pane))
         .or_else(|| agent_name(pane))
 }
 
@@ -92,16 +97,28 @@ fn label_is_numeric(tab: &Tab) -> bool {
     }
 }
 
+/// Explicit tab label, without the positional `Tab 2:` prefix.
+///
+/// `None` means Herdr has not given the tab a meaningful name yet (its label
+/// is empty or just its automatic number).
+pub fn tab_name(tab: &Tab) -> Option<String> {
+    (!label_is_numeric(tab)).then(|| {
+        tab.label
+            .as_deref()
+            .unwrap_or_default()
+            .trim()
+            .to_string()
+    })
+}
+
 /// `Tab 2: Agents`, or plain `Tab 2` for an unnamed tab.
 ///
 /// `position` is the 1-based slot in the workspace's tab list — the same number
 /// the user types for Quick Move (spec §9.4).
 pub fn tab_display(tab: &Tab, position: usize) -> String {
-    if label_is_numeric(tab) {
-        format!("Tab {position}")
-    } else {
-        format!("Tab {position}: {}", tab.label.as_deref().unwrap_or_default().trim())
-    }
+    tab_name(tab)
+        .map(|name| format!("Tab {position}: {name}"))
+        .unwrap_or_else(|| format!("Tab {position}"))
 }
 
 #[cfg(test)]
@@ -179,6 +196,9 @@ mod tests {
         assert_eq!(new_tab_label(&p).as_deref(), Some("ComposerSketch"));
 
         p.terminal_title_stripped = Some("build watch".into());
+        assert_eq!(new_tab_label(&p).as_deref(), Some("ComposerSketch"));
+
+        p.cwd = None;
         assert_eq!(new_tab_label(&p).as_deref(), Some("build watch"));
 
         p.label = Some("Music".into());
@@ -190,5 +210,11 @@ mod tests {
         assert_eq!(tab_display(&tab(Some("2")), 2), "Tab 2");
         assert_eq!(tab_display(&tab(None), 3), "Tab 3");
         assert_eq!(tab_display(&tab(Some("Agents")), 1), "Tab 1: Agents");
+    }
+
+    #[test]
+    fn tab_name_leaves_out_the_auto_number() {
+        assert_eq!(tab_name(&tab(Some("Agents"))).as_deref(), Some("Agents"));
+        assert_eq!(tab_name(&tab(Some("2"))), None);
     }
 }

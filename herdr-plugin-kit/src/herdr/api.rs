@@ -144,6 +144,21 @@ impl Herdr {
         .map(|_| ())
     }
 
+    /// The pane next to `pane_id` in `direction`, if there is one.
+    ///
+    /// Herdr's own `pane swap --direction` works this way, so anything that
+    /// picks a partner without being told should pick the same one.
+    pub fn neighbor(&self, pane_id: &str, direction: &str) -> Result<Option<String>> {
+        let result = self.call(
+            "pane.neighbor",
+            json!({ "pane_id": pane_id, "direction": direction }),
+        )?;
+        Ok(result
+            .get("neighbor_pane_id")
+            .and_then(Value::as_str)
+            .map(str::to_string))
+    }
+
     pub fn close_pane(&self, pane_id: &str) -> Result<()> {
         self.call("pane.close", json!({ "pane_id": pane_id }))
             .map(|_| ())
