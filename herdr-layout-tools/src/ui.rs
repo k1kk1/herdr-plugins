@@ -7,7 +7,7 @@
 use herdr_plugin_kit::context;
 use herdr_plugin_kit::herdr::{Herdr, Pane};
 use herdr_plugin_kit::label;
-use herdr_plugin_kit::ui::{Menu, Row, Term};
+use herdr_plugin_kit::ui::{Menu, Panel, Row, Term};
 use herdr_plugin_kit::{Outcome, Result};
 
 use crate::arrange::{Arrangement, Shape};
@@ -23,6 +23,13 @@ enum Choice {
     Save,
     Forget,
     Cancel,
+}
+
+#[derive(Debug, Clone)]
+struct PreviewPane {
+    id: String,
+    number: String,
+    label: String,
 }
 
 pub fn run(herdr: &Herdr, source: Pane, tab_override: Option<&str>) -> Result<Option<Outcome>> {
@@ -53,6 +60,7 @@ fn menu(
     let layout = herdr.layout(tab_id)?;
     let tab = herdr.tab(tab_id)?;
     let panes = layout.root.pane_ids();
+    let preview_panes = preview_panes(herdr, source, &panes);
     let current = Shape::from_layout(&layout.root);
     let current_preview = current
         .clone()
@@ -77,14 +85,14 @@ fn menu(
         Row::item("Equalize")
             .hotkey("e")
             .secondary("すべての Pane を同じ大きさに")
-            .preview_of(current_preview.clone()),
+            .panels(preview_panels(current_preview.clone(), &preview_panes)),
         Choice::Equalize,
     );
     menu.item(
         Row::item("Zoom current pane")
             .hotkey("z")
             .secondary(label::pane_compact(source))
-            .preview_of(zoom_preview),
+            .panels(preview_panels(zoom_preview, &preview_panes)),
         Choice::Zoom,
     );
 
@@ -107,7 +115,10 @@ fn menu(
             Row::item(arrangement.title())
                 .hotkey(arrangement.hotkey())
                 .secondary(note)
-                .preview_of(arrangement_preview(arrangement, &panes, &source.pane_id)),
+                .panels(preview_panels(
+                    arrangement_preview(arrangement, &panes, &source.pane_id),
+                    &preview_panes,
+                )),
             Choice::Arrange(arrangement),
         );
     }
@@ -127,7 +138,10 @@ fn menu(
             menu.item(
                 Row::item(name.clone())
                     .secondary(note)
-                    .preview_of(saved_preview(layout, &panes, &source.pane_id)),
+                    .panels(preview_panels(
+                        saved_preview(layout, &panes, &source.pane_id),
+                        &preview_panes,
+                    )),
                 Choice::Apply(name.clone()),
             );
         }
@@ -138,7 +152,7 @@ fn menu(
         Row::item("Save this layout")
             .hotkey("s")
             .secondary("今の形に名前を付けて覚える")
-            .preview_of(current_preview),
+            .panels(preview_panels(current_preview, &preview_panes)),
         Choice::Save,
     );
     if !saved.is_empty() {
@@ -172,6 +186,60 @@ fn menu(
             None => Ok(None),
         },
     }
+}
+
+/// The panes in the tab, numbered in layout order. The number is stable while
+/// the menu is open and remains legible even in a small preview cell.
+fn preview_panes(herdr: &Herdr, source: &Pane, pane_ids: &[String]) -> Vec<PreviewPane> {
+    let panes = herdr.panes(&source.workspace_id).unwrap_or_default();
+    pane_ids
+        .iter()
+        .enumerate()
+        .map(|(index, id)| {
+            let number = (index + 1).to_string();
+            let pane = panes
+                .iter()
+                .find(|pane| pane.pane_id == *id)
+                .or_else(|| (source.pane_id == *id).then_some(source));
+            let label = pane
+                .map(label::pane_primary)
+                .unwrap_or_else(|| format!("Pane {number}"));
+            PreviewPane {
+                id: id.clone(),
+                number,
+                label,
+            }
+        })
+        .collect()
+}
+
+/// Turn a target shape into the labelled panel the terminal renderer draws.
+fn preview_panels(
+    preview: Option<(Shape, Vec<String>)>,
+    panes: &[PreviewPane],
+) -> Vec<Panel> {
+    let Some((shape, marked)) = preview else {
+        return Vec::new();
+    };
+    let caption = panes
+        .iter()
+        .map(|pane| format!("{} {}", pane.number, short_label(&pane.label)))
+        .collect::<Vec<_>>()
+        .join("  ·  ");
+    let labels = panes
+        .iter()
+        .map(|pane| (pane.id.clone(), pane.number.clone()))
+        .collect();
+    vec![Panel::new(caption, shape).marking(marked).labeling(labels)]
+}
+
+fn short_label(label: &str) -> String {
+    const LIMIT: usize = 12;
+    let mut text: String = label.chars().take(LIMIT).collect();
+    if label.chars().nth(LIMIT).is_some() {
+        text.push('…');
+    }
+    text
 }
 
 /// Diagram the target arrangement before any pane is moved.
