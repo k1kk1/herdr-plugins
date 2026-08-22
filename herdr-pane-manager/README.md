@@ -298,7 +298,7 @@ cp config.example.toml "$(herdr plugin config-dir pane-manager)/config.toml"
 | `focus_after_operation` | `true` | 操作後に対象PaneへFocusする |
 | `advanced_move` | `false` | 移動先Tabのどのpaneを分割するか毎回選ぶ |
 | `preserve_merge_layout` | `true` | Merge時に元Tabのsplit構造を維持 |
-| `auto_name_new_tab` | `true` | Extractした Tab を Pane 名から自動命名 |
+| `auto_name_new_tab` | `true` | Extractした Tab を作業ディレクトリ名から自動命名 |
 | `show_agent_state` | `true` | ピッカーに `● ! ✓ ○ ?` を表示 |
 | `show_terminal_title` | `true` | Pane が今なにをしているかを2行目に表示 |
 | `confirm_merge` | `false` | Merge 前に確認する |
@@ -308,7 +308,7 @@ cp config.example.toml "$(herdr plugin config-dir pane-manager)/config.toml"
 
 | キー | 既定値 | 意味 |
 |---|---|---|
-| `statuses` | `["blocked", "done", "working"]` | 集約対象の Agent 状態 |
+| `statuses` | `["blocked", "done", "working", "idle"]` | 集約対象の Agent 状態。`idle` は「入力待ち」なので既定で含む |
 | `max_panes_per_tab` | `4` | 1 Tab あたりの Pane 数 (2 / 3 / 4) |
 | `scope` | `"workspace"` | `workspace` / `all` |
 | `focus_highest_priority` | `true` | Gather 後に最優先 Agent へ Focus |
@@ -316,6 +316,10 @@ cp config.example.toml "$(herdr plugin config-dir pane-manager)/config.toml"
 | `tab_label` | `"Active Agents"` | 生成する Tab の名前 |
 
 設定ファイルが壊れている場合は既定値で動作し、Pane Manager モードの末尾に警告を出します。操作が止まることはありません。
+
+新しい Tab の既定名は、Pane の作業ディレクトリの末尾です（`~/src/my-app` なら `my-app`）。
+作業ディレクトリが取れない場合だけ Pane 名、terminal title、Agent 名の順で補います。Herdr の通常の
+Tab リネームで、作成後にいつでも好きな名前へ変更できます。`new-tab` Action は空の Tab も同じ規則で作ります。
 
 ---
 

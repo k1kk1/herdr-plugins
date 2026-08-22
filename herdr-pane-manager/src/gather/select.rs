@@ -89,7 +89,18 @@ pub fn highest_priority(agents: &[Agent]) -> Option<&Agent> {
 
 /// Statuses Gather collects unless configured otherwise.
 pub fn default_statuses() -> Vec<AgentStatus> {
-    vec![AgentStatus::Blocked, AgentStatus::Done, AgentStatus::Working]
+    vec![
+        AgentStatus::Blocked,
+        AgentStatus::Done,
+        AgentStatus::Working,
+        // `idle` was left out at first, on the reading that an idle agent does
+        // not need attention. It is the opposite: idle is what Claude and
+        // Codex report while they are *waiting for you*, so it is the pane
+        // most worth having in front of you. Leaving it out also made Gather
+        // unpredictable — two agents running, one of them momentarily idle,
+        // and only one of them collected. Priority still puts it last.
+        AgentStatus::Idle,
+    ]
 }
 
 #[cfg(test)]
@@ -124,23 +135,26 @@ mod tests {
     }
 
     #[test]
-    fn idle_and_unknown_are_left_alone() {
+    fn an_idle_agent_is_collected_and_an_unknown_one_is_not() {
+        // Idle is what Claude and Codex report while they wait for you, so it
+        // is a pane worth having in front of you. `unknown` is what a pane
+        // with no agent in it reports.
         let got = select(&sample(), &GatherConfig::default(), None);
-        assert!(!ids(&got).contains(&"p2"), "idle was gathered");
+        assert!(ids(&got).contains(&"p2"), "idle was left behind");
         assert!(!ids(&got).contains(&"p6"), "unknown was gathered");
     }
 
     #[test]
-    fn blocked_comes_first_then_done_then_working() {
+    fn blocked_comes_first_then_done_then_working_then_idle() {
         let got = select(&sample(), &GatherConfig::default(), None);
         // p5 before p1: same status, higher state_change_seq is more recent.
-        assert_eq!(ids(&got), ["p3", "p4", "p5", "p1"]);
+        assert_eq!(ids(&got), ["p3", "p4", "p5", "p1", "p2"]);
     }
 
     #[test]
     fn scope_limits_the_search_to_one_workspace() {
         let got = select(&sample(), &GatherConfig::default(), Some("w1"));
-        assert_eq!(ids(&got), ["p3", "p5", "p1"]);
+        assert_eq!(ids(&got), ["p3", "p5", "p1", "p2"]);
     }
 
     #[test]
@@ -156,7 +170,7 @@ mod tests {
     fn an_empty_agent_filter_means_every_kind() {
         let config = GatherConfig::default();
         assert!(config.agents.is_empty());
-        assert_eq!(select(&sample(), &config, None).len(), 4);
+        assert_eq!(select(&sample(), &config, None).len(), 5);
     }
 
     #[test]

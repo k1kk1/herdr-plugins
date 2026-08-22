@@ -123,8 +123,10 @@ impl DefaultAction {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct GatherConfig {
-    /// Agent states worth collecting. `idle` and `unknown` are left out by
-    /// default, and panes with no detected agent are never candidates.
+    /// Agent states worth collecting. Every state a running agent reports is
+    /// in by default, `idle` included — that is what Claude and Codex say
+    /// while they wait for you. `unknown` is left out because it is what a
+    /// pane with no agent in it reports, and those are never candidates.
     pub statuses: Vec<AgentStatus>,
     /// Agents per Gather tab: 2, 3 or 4.
     pub max_panes_per_tab: u8,
@@ -163,7 +165,7 @@ impl GatherConfig {
             .unwrap_or(crate::gather::select::Scope::CurrentWorkspace)
     }
 
-    /// The configured statuses, for messages: `blocked, done, working`.
+    /// The configured statuses, for messages: `blocked, done, working, idle`.
     pub fn status_summary(&self) -> String {
         self.statuses
             .iter()
@@ -303,13 +305,13 @@ mod tests {
     #[test]
     fn gather_defaults_match_the_spec() {
         let gather = Config::default().gather;
-        assert_eq!(gather.statuses.len(), 3);
+        assert_eq!(gather.statuses.len(), 4);
         assert_eq!(gather.per_tab().get(), 4);
         assert_eq!(gather.scope(), crate::gather::select::Scope::CurrentWorkspace);
         assert!(gather.focus_highest_priority);
         assert!(gather.agents.is_empty());
         assert_eq!(gather.tab_label, "Active Agents");
-        assert_eq!(gather.status_summary(), "blocked, done, working");
+        assert_eq!(gather.status_summary(), "blocked, done, working, idle");
     }
 
     #[test]

@@ -21,8 +21,8 @@ width = "60%"
 height = "70%"
 
 # ---------------------------------------------------------------------------
-# Actions (spec §11). Kept to the four core operations plus the manager entry
-# and the nine Quick Move slots; anything more belongs to Layout Tools,
+# Actions (spec §11). Kept to the core operations, an empty-tab creator, the
+# manager entry and the nine Quick Move slots; anything more belongs to Layout Tools,
 # Navigator or Command Palette plugins (spec §2.2).
 #
 # Herdr rejects dots in action ids, so the spec's `pane-manager.move` is
@@ -40,6 +40,13 @@ title = "Pane Manager"
 description = "現在の Pane に対する操作メニューを開く"
 contexts = ["pane", "global"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" launch manager']
+
+[[actions]]
+id = "new-tab"
+title = "New Tab from Current Directory"
+description = "現在の作業ディレクトリ名で空の Tab を作る"
+contexts = ["global", "pane", "tab"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" new-tab']
 
 [[actions]]
 id = "move"

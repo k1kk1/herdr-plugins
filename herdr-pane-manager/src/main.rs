@@ -17,13 +17,15 @@ mod place;
 mod undo;
 mod ops;
 mod state;
+#[cfg(test)]
+mod testkit;
 mod ui;
 
 use herdr_plugin_kit::context;
 use herdr_plugin_kit::herdr::Herdr;
 use herdr_plugin_kit::label;
 use herdr_plugin_kit::layout::{Ratio, Side};
-use herdr_plugin_kit::{bail, Result};
+use herdr_plugin_kit::{bail, Outcome, Result};
 
 use crate::config::{Config, PLUGIN_ID};
 use crate::gather::layout::PanesPerTab;
@@ -48,6 +50,10 @@ Usage:
 
   herdr-pane-manager extract [--pane ID] [--new-workspace] [--label TEXT]
       Split the pane out into a tab, or a workspace, of its own. Immediate.
+
+  herdr-pane-manager new-tab [--pane ID] [--label TEXT]
+      Create an empty tab in this workspace. Its default name is the current
+      working directory's final component.
 
   herdr-pane-manager quick-move <1-9> [--pane ID] [--side S] [--ratio R]
       Move the pane to the tab in that slot. Immediate.
@@ -94,6 +100,7 @@ fn run() -> Result<()> {
     match args.command.as_str() {
         "launch" => launch(&herdr, &args),
         "ui" => interactive(&herdr, &args),
+        "new-tab" => new_tab(&herdr, &args),
         "extract" | "quick-move" | "move" | "swap" | "merge" => headless(&herdr, &args),
         "gather" | "refresh-gather" | "restore-gather" => gather_command(&herdr, &args),
         "undo" => undo::undo(&herdr).map(|outcome| outcome.report(&herdr)),
@@ -108,6 +115,29 @@ fn run() -> Result<()> {
         }
         other => bail!("unknown command `{other}`\n\n{USAGE}"),
     }
+}
+
+/// Create an empty tab with the current pane's project as its default title.
+///
+/// This is deliberately separate from Extract: the native `new_tab` shortcut
+/// makes a fresh shell, whereas Extract moves a live pane and must preserve
+/// its process. Both share the same naming policy and accept `--label` as an
+/// explicit override.
+fn new_tab(herdr: &Herdr, args: &Args) -> Result<()> {
+    let config = Config::load();
+    let source = context::resolve_source_pane(herdr, args.pane.as_deref())?;
+    let label = config
+        .new_tab_label(&source, args.label.as_deref().filter(|text| !text.trim().is_empty()))
+        .unwrap_or_else(|| "New Tab".to_string());
+    let cwd = source
+        .foreground_cwd
+        .as_deref()
+        .or(source.cwd.as_deref());
+    let created = herdr.create_tab(&source.workspace_id, &label, cwd, true)?;
+    Outcome::new(format!("Created tab \"{label}\""))
+        .with_detail(format!("Pane {}", label::pane_compact(&created)))
+        .report(herdr);
+    Ok(())
 }
 
 /// Open the overlay in a plugin pane.
@@ -547,5 +577,12 @@ mod tests {
         assert!(args.new_workspace);
         assert_eq!(args.label.as_deref(), Some("review"));
         assert!(parse(&["merge", "--flatten"]).flatten);
+    }
+
+    #[test]
+    fn new_tab_accepts_an_optional_explicit_label() {
+        let args = parse(&["new-tab", "--label", "review"]);
+        assert_eq!(args.command, "new-tab");
+        assert_eq!(args.label.as_deref(), Some("review"));
     }
 }

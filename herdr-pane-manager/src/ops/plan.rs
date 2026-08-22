@@ -140,7 +140,7 @@ fn build_move(snapshot: &Snapshot, request: &Request, source: &Pane) -> Result<P
 
     Ok(Plan {
         verb: Verb::Move,
-        destination: request.destination.clone(),
+        destination: settle_anchor(snapshot, &request.destination),
         placement: request.placement,
         panes: vec![source.pane_id.clone()],
         internal: Vec::new(),
@@ -195,6 +195,56 @@ fn build_swap(snapshot: &Snapshot, request: &Request, source: &Pane) -> Result<P
     })
 }
 
+/// The arrangement for a Fold that ends with exactly three panes.
+///
+/// Three panes cannot make a grid. Strung along one edge the two arrivals get
+/// a quarter of the tab each while the pane already there keeps half, which is
+/// the wrong way round — the panes that just moved are the ones being looked
+/// at. One full-height column with the pair stacked beside it is the same
+/// arrangement Gather uses for three, so the two features agree.
+///
+/// `None` when the rule does not apply, and then the source tab's own splits
+/// are replayed as usual.
+pub fn three_pane_column(
+    destination_panes: usize,
+    moving: &[String],
+) -> Option<Vec<herdr_plugin_kit::layout::Placement>> {
+    (destination_panes == 1 && moving.len() == 2).then(|| {
+        vec![herdr_plugin_kit::layout::Placement {
+            pane_id: moving[1].clone(),
+            anchor: moving[0].clone(),
+            side: herdr_plugin_kit::layout::Side::Down,
+        }]
+    })
+}
+
+/// Name the pane a placement will split, rather than leaving it to Herdr.
+///
+/// Herdr splits the destination tab's focused pane when no anchor is given,
+/// which is fine for Right and Down. Left and Up are not splits Herdr can do:
+/// they are performed as a right/down split *followed by a swap*, and there is
+/// nothing to swap with unless the anchor is known — so with the direction set
+/// to Left a quick Move silently landed on the right instead, while the
+/// preview drew it on the left.
+///
+/// Settling it here means the plan, the apply and the picture all name the
+/// same pane.
+fn settle_anchor(snapshot: &Snapshot, destination: &Destination) -> Destination {
+    match destination {
+        Destination::Tab {
+            tab_id,
+            target_pane: None,
+        } => Destination::Tab {
+            tab_id: tab_id.clone(),
+            target_pane: snapshot
+                .tab(tab_id)
+                .and_then(|entry| entry.split_anchor())
+                .map(|pane| pane.pane_id.clone()),
+        },
+        other => other.clone(),
+    }
+}
+
 fn build_merge(snapshot: &Snapshot, request: &Request, source: &Pane) -> Result<Plan> {
     let source_tab_id = request
         .source_tab
@@ -219,7 +269,7 @@ fn build_merge(snapshot: &Snapshot, request: &Request, source: &Pane) -> Result<
     // Carry the source tab's own split structure across, so a two-over-one
     // arrangement stays a two-over-one arrangement (addendum §11). Falling
     // back to layout order costs only the nesting, never a pane.
-    let (panes, internal) = match (request.preserve_layout, &source_tab.shape) {
+    let (panes, internal): (Vec<String>, _) = match (request.preserve_layout, &source_tab.shape) {
         (true, Some(shape)) => {
             let layout_plan = LayoutPlan::from_shape(shape);
             (layout_plan.pane_ids(), layout_plan.placements)
@@ -229,10 +279,14 @@ fn build_merge(snapshot: &Snapshot, request: &Request, source: &Pane) -> Result<
             Vec::new(),
         ),
     };
+    let internal = match three_pane_column(destination.panes.len(), &panes) {
+        Some(column) => column,
+        None => internal,
+    };
 
     Ok(Plan {
         verb: Verb::Merge,
-        destination: request.destination.clone(),
+        destination: settle_anchor(snapshot, &request.destination),
         placement: request.placement,
         panes,
         internal,

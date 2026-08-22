@@ -106,6 +106,24 @@ pub fn gather(
     session.gather_tabs = tabs.clone();
     session::save(&session)?;
 
+    // Also record it as the last undoable operation, so `Undo` takes a Gather
+    // back the same way it takes a Move back. Restore keeps its own record and
+    // stays available afterwards; this one is spent by the next operation,
+    // which is what makes "collect these for a moment" cheap to try.
+    let _ = crate::undo::save(&crate::undo::Record {
+        verb: "Gather".into(),
+        subject: format!(
+            "{} agent{}",
+            session.origins.len(),
+            if session.origins.len() == 1 { "" } else { "s" }
+        ),
+        origins: session.origins.clone(),
+        swap: None,
+        created_tabs: tabs.clone(),
+        gather: true,
+        unix_ms: crate::undo::now_unix_ms(),
+    });
+
     verify_gathered(herdr, &order, &tabs)?;
 
     if config.gather.focus_highest_priority {
@@ -150,6 +168,9 @@ fn restore_session(herdr: &Herdr, existing: Session) -> Result<Outcome> {
     let count = existing.origins.len();
     let restored = place::restore(herdr, &existing.origins)?;
     session::clear();
+    // The Gather's undo record describes panes that are now home; keeping it
+    // would offer Undo as a second way to do what just happened.
+    crate::undo::forget_gather();
 
     // Gather tabs empty out as their panes leave and Herdr closes them; this
     // only catches one that survived.
@@ -166,11 +187,6 @@ fn restore_session(herdr: &Herdr, existing: Session) -> Result<Outcome> {
     }
 
     Ok(Outcome::new("Returned the gathered agents").with_detail(restored.detail(count)))
-}
-
-/// How many agents a Gather would collect right now, for the menu.
-pub fn count_active(herdr: &Herdr, config: &Config) -> Result<usize> {
-    active_agents(herdr, config, config.gather.scope()).map(|agents| agents.len())
 }
 
 /// Active agents for a scope, most urgent first.

@@ -57,7 +57,7 @@ show_ids = false
 # Agent states worth collecting, most urgent first.
 #   "blocked" | "done" | "working" | "idle" | "unknown"
 # Panes Herdr has not detected an agent in are never candidates.
-statuses = ["blocked", "done", "working"]
+statuses = ["blocked", "done", "working", "idle"]
 
 # Agents per Gather tab: 2, 3 or 4.
 #   2 → side by side

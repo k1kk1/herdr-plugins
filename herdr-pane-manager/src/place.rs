@@ -79,8 +79,13 @@ pub fn origin_of(herdr: &Herdr, pane_id: &str) -> Result<Origin> {
                     Some(placement.side.as_str().to_string()),
                     index,
                 ),
-                // The tab's root pane: nothing anchors it.
-                None => (None, None, 0),
+                // The tab's root pane has no placement of its own.
+                None => match beside(shape, pane_id) {
+                    Some((neighbour, side)) => {
+                        (Some(neighbour), Some(side.as_str().to_string()), 0)
+                    }
+                    None => (None, None, 0),
+                },
             }
         }
         None => (None, None, 0),
@@ -110,6 +115,52 @@ pub fn origins_of(herdr: &Herdr, panes: &[String]) -> Vec<Origin> {
         .iter()
         .filter_map(|pane_id| origin_of(herdr, pane_id).ok())
         .collect()
+}
+
+/// Where the tab's first pane sat, described against the pane next to it.
+///
+/// `Plan::from_shape` reads a tab as "start from this pane, then split off the
+/// others", so the pane it starts from is the one pane with no placement. A
+/// record built straight from the plan therefore says nothing about where that
+/// pane was — and a restore with no anchor lets Herdr append it on the right,
+/// which is how a pane that lived on the left came back on the right.
+///
+/// Read the relationship the other way round: the first pane sits on the *far*
+/// side of its split from its neighbour. `Side::Left` is not something Herdr
+/// can do directly, but [`place`] already knows to split right and swap, so
+/// recording it is enough.
+fn beside(shape: &Shape, pane_id: &str) -> Option<(String, Side)> {
+    match shape {
+        Shape::Pane(_) => None,
+        Shape::Split {
+            side,
+            first,
+            second,
+        } => {
+            if matches!(&**first, Shape::Pane(id) if id == pane_id) {
+                return leading_pane(second).map(|neighbour| (neighbour, opposite(*side)));
+            }
+            beside(first, pane_id).or_else(|| beside(second, pane_id))
+        }
+    }
+}
+
+/// The pane a split's second half starts with — the one physically next to the
+/// pane on the other side of that split.
+fn leading_pane(shape: &Shape) -> Option<String> {
+    match shape {
+        Shape::Pane(id) => Some(id.clone()),
+        Shape::Split { first, .. } => leading_pane(first),
+    }
+}
+
+fn opposite(side: Side) -> Side {
+    match side {
+        Side::Right => Side::Left,
+        Side::Left => Side::Right,
+        Side::Down => Side::Up,
+        Side::Up => Side::Down,
+    }
 }
 
 /// What a restore actually did.
@@ -244,6 +295,70 @@ pub fn restore(herdr: &Herdr, origins: &[Origin]) -> Result<Restored> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn shape_of(splits: &[(&str, &str, Side)], root: &str) -> Shape {
+        let mut shape = Shape::pane(root);
+        for (anchor, pane, side) in splits {
+            shape.split(anchor, pane, *side);
+        }
+        shape
+    }
+
+    #[test]
+    fn the_first_pane_of_a_tab_remembers_which_side_it_was_on() {
+        // `(r p5 p1)`: p5 is on the left. It is also the pane the layout plan
+        // starts from, so it has no placement — and a record with no anchor
+        // let Herdr append it on the right when it came back.
+        let shape = shape_of(&[("w1:p5", "w1:p1", Side::Right)], "w1:p5");
+        assert_eq!(shape.signature(), "(r w1:p5 w1:p1)");
+        assert_eq!(
+            beside(&shape, "w1:p5"),
+            Some(("w1:p1".to_string(), Side::Left))
+        );
+        // Stacked the same way: the top pane comes back above, not below.
+        let stacked = shape_of(&[("w1:p5", "w1:p1", Side::Down)], "w1:p5");
+        assert_eq!(
+            beside(&stacked, "w1:p5"),
+            Some(("w1:p1".to_string(), Side::Up))
+        );
+    }
+
+    #[test]
+    fn the_neighbour_is_the_pane_actually_next_to_it() {
+        // `(r p5 (r pC p1))`: p5's neighbour is pC, the pane it touches, not
+        // whichever one happens to be named first in the subtree.
+        let shape = shape_of(
+            &[
+                ("w1:p5", "w1:pC", Side::Right),
+                ("w1:pC", "w1:p1", Side::Right),
+            ],
+            "w1:p5",
+        );
+        assert_eq!(shape.signature(), "(r w1:p5 (r w1:pC w1:p1))");
+        assert_eq!(
+            beside(&shape, "w1:p5"),
+            Some(("w1:pC".to_string(), Side::Left))
+        );
+    }
+
+    #[test]
+    fn a_pane_alone_in_its_tab_has_nothing_to_sit_beside() {
+        let alone = Shape::pane("w1:p5");
+        assert_eq!(beside(&alone, "w1:p5"), None);
+    }
+
+    #[test]
+    fn a_left_hand_origin_is_replayed_as_a_split_and_a_swap() {
+        // Herdr only splits right and down. `Side::Left` therefore has to
+        // become "split right, then trade places", and the record has to say
+        // so or the pane lands on the wrong side.
+        let origin = Origin {
+            side: Some("left".into()),
+            ..origin("w1:p5", "w1:t1", 0)
+        };
+        assert_eq!(origin.side(), Side::Left);
+        assert!(origin.side().needs_swap());
+    }
 
     fn origin(pane: &str, tab: &str, order: usize) -> Origin {
         Origin {

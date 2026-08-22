@@ -20,7 +20,10 @@ mod apply;
 mod plan;
 mod verify;
 
-pub use plan::{Destination, Request, Verb};
+pub use plan::{three_pane_column, Destination, Request, Verb};
+
+#[cfg(test)]
+pub use plan::{build, Plan};
 
 use herdr_plugin_kit::herdr::Herdr;
 use herdr_plugin_kit::layout::{Ratio, Side};
