@@ -153,8 +153,13 @@ impl Herdr {
             "pane.neighbor",
             json!({ "pane_id": pane_id, "direction": direction }),
         )?;
+        // The answer is nested: `{ "neighbor": { "neighbor_pane_id": … } }`.
+        // Reading the outer object found nothing, every time, so every caller
+        // silently fell through to its fallback and the direction was never
+        // used at all.
         Ok(result
-            .get("neighbor_pane_id")
+            .get("neighbor")
+            .and_then(|neighbor| neighbor.get("neighbor_pane_id"))
             .and_then(Value::as_str)
             .map(str::to_string))
     }

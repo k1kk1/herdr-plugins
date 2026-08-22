@@ -185,17 +185,23 @@ fn manager_once(
     config: &Config,
     config_warning: Option<String>,
 ) -> Result<Step> {
+    let menu_partner = swap_partner(herdr, snapshot, config)
+        .and_then(|id| snapshot.pane(&id).cloned());
     let mut menu = manager_menu(
-        herdr,
         snapshot,
         config,
         config_warning,
         term.distinguishes_modified_enter(),
+        menu_partner.clone(),
     );
     let Some(choice) = menu.run(term)? else {
         return Ok(Step::Close);
     };
-    manager_choice(term, herdr, snapshot, config, choice, &menu)
+    // The pane the Swap row named is the pane `s` must trade with. Asking
+    // again here would be a second round trip and a second chance to disagree
+    // with the sentence the reader just read.
+    let partner = menu_partner.map(|pane| pane.pane_id);
+    manager_choice(term, herdr, snapshot, config, choice, &menu, partner)
 }
 
 /// The landing screen, built but not run.
@@ -203,11 +209,11 @@ fn manager_once(
 /// Separated so a test can read the rows: which of them appear, and whether a
 /// row's name promises a screen the key will actually open.
 fn manager_menu(
-    herdr: &Herdr,
     snapshot: &Snapshot,
     config: &Config,
     config_warning: Option<String>,
     modified_enter: bool,
+    partner: Option<Pane>,
 ) -> Menu<Choice> {
     let mut menu = Menu::new("Pane Manager")
         .subtitle(source_line(snapshot, config))
@@ -266,12 +272,10 @@ fn manager_menu(
     let next_tab = snapshot
         .next_tab()
         .map(|t| label::tab_name(&t.tab).unwrap_or_else(|| "Tab".into()));
-    // Resolved once: the row's wording, the picture beside it and the key all
-    // have to name the same pane. Asking Herdr for the neighbour in one place
-    // and walking the pane list in another put a different pane in the
-    // sentence than the one `s` would actually trade with.
-    let partner = swap_partner(herdr, snapshot, config)
-        .and_then(|id| snapshot.pane(&id).cloned());
+    // Resolved once by the caller: the row's wording, the picture beside it
+    // and the key all have to name the same pane. Asking Herdr for the
+    // neighbour in one place and walking the pane list in another put a
+    // different pane in the sentence than the one `s` would trade with.
     let next_pane = partner.as_ref().map(label::pane_compact);
     let target = |name: &Option<String>, verb: &str, pick: &str| match name {
         Some(name) => format!("{name} {verb}"),
@@ -412,6 +416,7 @@ fn manager_choice(
     config: &Config,
     choice: Choice,
     menu: &Menu<Choice>,
+    partner: Option<String>,
 ) -> Result<Step> {
     // Shift means "that, but let me say where" — on a quick row it names the
     // tab and stops to ask, on `Move to…` it carries the same intent into the
@@ -481,7 +486,7 @@ fn manager_choice(
                 move_flow(term, herdr, &full, config, detailed)
             }
         },
-        Choice::Swap => match (detailed, swap_partner(herdr, snapshot, config)) {
+        Choice::Swap => match (detailed, partner) {
             (false, Some(target)) => {
                 run_request(
                     herdr,

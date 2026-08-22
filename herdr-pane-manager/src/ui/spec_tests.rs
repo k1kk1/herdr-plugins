@@ -132,8 +132,7 @@ fn the_fill_marks_the_pane_the_reader_is_sitting_in() {
 
 /// The rows the landing screen offers, without running it.
 fn row_titles(snapshot: &Snapshot, config: &Config) -> Vec<String> {
-    let herdr = Herdr::unreachable();
-    manager_menu(&herdr, snapshot, config, None, true).item_titles()
+    manager_menu(snapshot, config, None, true, snapshot.next_pane_here().cloned()).item_titles()
 }
 
 /// The signature of a row's picture, for the detail screens.

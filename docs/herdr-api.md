@@ -67,6 +67,18 @@ w2N:tM   w2N:p1   w2N:pB
 
 ## Pane を動かす
 
+### `pane.neighbor` の答えは入れ子
+
+```json
+{ "type": "pane_neighbor",
+  "neighbor": { "pane_id": "w2N:p1", "direction": "right",
+                "neighbor_pane_id": "w2N:p5", "layout": { … } } }
+```
+
+`neighbor_pane_id` は **`neighbor` の中**です。外側を見ると常に見つからず、
+「隣が無い」と区別がつきません。`direction` は小文字のみ（`Right` は
+`invalid_request`）。
+
 ### 安全なのは `pane.move` と `layout.set_split_ratio` だけ
 
 この2つは `pane_id` を保持するので、中のプロセスが生き残ります。
