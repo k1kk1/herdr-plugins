@@ -388,11 +388,18 @@ fn a_legend_line_names_its_agent_only_once() {
 }
 
 #[test]
-fn the_legend_skips_panes_that_are_only_placeholders() {
-    // A Gather draws slots, not panes that exist yet; there is nothing to
-    // look up and nothing to say.
-    let snapshot = testkit::session("t1: p1*");
-    let panels = gather_panels(0, &["p1".into()], &Config::default());
+fn the_legend_reads_a_gathers_slots_back_by_name() {
+    // A Gather labels slots in a tab that does not exist yet, so the ids in
+    // the picture are placeholders. Looking them up by name is what keeps the
+    // list from leaving out exactly the panes the picture is about.
+    let mut snapshot = testkit::session("t1: p1* | p5");
+    snapshot.tabs[0].panes[0].agent = Some("claude".into());
+    let panels = gather_panels(0, &["p1".into(), "p5".into()], None, &Config::default());
+    assert_eq!(legend(&panels, &snapshot).len(), 2);
+
+    // A name that matches nothing in this session is left out rather than
+    // invented.
+    let panels = gather_panels(0, &["pZ".into()], None, &Config::default());
     assert!(legend(&panels, &snapshot).is_empty());
 }
 
@@ -456,14 +463,65 @@ fn a_new_tab_is_drawn_in_front_of_the_one_it_comes_from() {
 }
 
 #[test]
+fn a_gather_shows_where_the_agents_are_now() {
+    use herdr_plugin_kit::herdr::AgentStatus;
+    let mut snapshot = testkit::session("t1 herdr-plugins: p1* | p5 ; t2 dotfiles: pB");
+    for tab in &mut snapshot.tabs {
+        for pane in &mut tab.panes {
+            pane.agent = Some("codex".into());
+            pane.agent_status = AgentStatus::Working;
+        }
+    }
+    let config = Config::default();
+    let names = gatherable_here(&snapshot, &config);
+    let panels = gather_panels(0, &names, Some(&snapshot), &config);
+
+    // Before and after, like every other operation.
+    assert_eq!(panels.len(), 2);
+    // The reader's own tab leads, drawn from its real layout; the sheet behind
+    // names another tab the agents come from.
+    assert_eq!(panels[0].caption, "herdr-plugins");
+    assert_eq!(panels[0].behind.as_deref(), Some("dotfiles"));
+    assert_eq!(
+        panels[0].shape.as_ref().map(Shape::signature).unwrap(),
+        "(r w1:p1 w1:p5)"
+    );
+    // The fill is the reader's pane on both sides, because this Gather takes
+    // it — not every agent, which the caption already says.
+    assert_eq!(panels[0].marked, vec![testkit::pane("p1")]);
+    assert_eq!(panels[1].marked.len(), 1);
+    assert_eq!(panels[1].caption, config.gather.tab_label);
+}
+
+#[test]
+fn a_gather_that_leaves_the_readers_pane_alone_fills_nothing() {
+    use herdr_plugin_kit::herdr::AgentStatus;
+    let mut snapshot = testkit::session("t1: p1* | p5");
+    snapshot.tabs[0].panes[1].agent = Some("codex".into());
+    snapshot.tabs[0].panes[1].agent_status = AgentStatus::Working;
+    let config = Config::default();
+    let names = gatherable_here(&snapshot, &config);
+    let panels = gather_panels(0, &names, Some(&snapshot), &config);
+    assert!(panels.iter().all(|panel| panel.marked.is_empty()));
+}
+
+#[test]
+fn a_gather_with_nothing_findable_draws_the_result_alone() {
+    // With the scope set past this snapshot there is no honest "before".
+    let snapshot = testkit::session("t1: p1*");
+    let panels = gather_panels(0, &[], Some(&snapshot), &Config::default());
+    assert_eq!(panels.len(), 1);
+}
+
+#[test]
 fn a_gather_that_fills_two_tabs_is_drawn_as_two_sheets() {
     let mut config = Config::default();
     config.gather.max_panes_per_tab = 2;
     // Two agents: one tab, one sheet.
-    assert!(!gather_panels(0, &["p1".into(), "p5".into()], &config)[0].stacked);
+    assert!(!gather_panels(0, &["p1".into(), "p5".into()], None, &config)[0].stacked);
     // Five: three tabs, so the sheet behind is a tab that will exist.
     let many: Vec<String> = (1..=5).map(|n| format!("p{n}")).collect();
-    let panel = &gather_panels(0, &many, &config)[0];
+    let panel = &gather_panels(0, &many, None, &config)[0];
     assert!(panel.stacked);
     assert_eq!(panel.behind.as_deref(), Some(config.gather.tab_label.as_str()));
 }
@@ -527,7 +585,7 @@ fn a_gather_writes_the_agents_own_names_into_the_boxes() {
     // mean?".
     let config = Config::default();
     let names = vec!["p5".to_string(), "p1".to_string()];
-    let panels = gather_panels(0, &names, &config);
+    let panels = gather_panels(0, &names, None, &config);
     assert_eq!(
         panels[0]
             .labels
@@ -545,6 +603,6 @@ fn a_gather_writes_the_agents_own_names_into_the_boxes() {
 #[test]
 fn a_gather_fills_nothing() {
     // The reader's pane is not one of the agents being collected.
-    let panels = gather_panels(0, &[], &Config::default());
+    let panels = gather_panels(0, &[], None, &Config::default());
     assert!(panels.iter().all(|panel| panel.marked.is_empty()));
 }

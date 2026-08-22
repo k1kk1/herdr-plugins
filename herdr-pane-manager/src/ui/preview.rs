@@ -238,7 +238,71 @@ pub(super) fn named(slots: &[String], names: &[String]) -> Vec<(String, String)>
         .collect()
 }
 
-pub(super) fn gather_panels(panes: usize, names: &[String], config: &Config) -> Vec<Panel> {
+/// Where the agents are now: the tab the reader is in, with the ones it holds
+/// filled, and the sheet behind naming another tab they come from.
+///
+/// A Gather reaches across tabs, so no single diagram is the whole truth. The
+/// front sheet is a real tab drawn from its real layout; the sheet behind says
+/// there are more, and names one of them. Nothing here is invented — when the
+/// agents all sit in one tab there is no second sheet.
+fn scattered_now(snapshot: &Snapshot, config: &Config) -> Option<Panel> {
+    let wanted = gatherable_here(snapshot, config);
+    if wanted.is_empty() {
+        return None;
+    }
+    let holds = |tab: &&TabEntry| {
+        tab.panes
+            .iter()
+            .any(|pane| wanted.contains(&pane_number(pane)))
+    };
+    // The reader's own tab first when it has an agent in it, because that is
+    // the tab they are looking at.
+    let front = snapshot
+        .source_tab()
+        .filter(holds)
+        .or_else(|| snapshot.tabs.iter().find(holds))?;
+    let others: Vec<&TabEntry> = snapshot
+        .tabs
+        .iter()
+        .filter(holds)
+        .filter(|tab| tab.tab.tab_id != front.tab.tab_id)
+        .collect();
+
+    let Some(shape) = front.layout() else {
+        return Some(Panel::unreadable(tab_number(front)));
+    };
+    // The fill means the reader's own pane, here as everywhere else — and only
+    // when a Gather would really take it. Shading every agent would make the
+    // picture say "these all move", which the caption already says, and would
+    // leave the reader hunting for their own.
+    let marked: Vec<String> = front
+        .panes
+        .iter()
+        .filter(|pane| pane.pane_id == snapshot.source.pane_id)
+        .filter(|pane| wanted.contains(&pane_number(pane)))
+        .map(|pane| pane.pane_id.clone())
+        .collect();
+    let labels: Vec<(String, String)> = front
+        .panes
+        .iter()
+        .map(|pane| (pane.pane_id.clone(), pane_number(pane)))
+        .collect();
+
+    let panel = Panel::new(tab_number(front), shape)
+        .marking(marked)
+        .labeling(labels);
+    Some(match others.first() {
+        Some(other) => panel.behind(tab_number(other)),
+        None => panel,
+    })
+}
+
+pub(super) fn gather_panels(
+    panes: usize,
+    names: &[String],
+    snapshot: Option<&Snapshot>,
+    config: &Config,
+) -> Vec<Panel> {
     // Only the first tab is drawn; the caption carries the rest.
     let per_tab = config.gather.per_tab().get();
     // No Gather session yet, so the count comes from the panes on screen: a
@@ -266,13 +330,27 @@ pub(super) fn gather_panels(panes: usize, names: &[String], config: &Config) -> 
     // the names live in the frames, both can say what they are. One tab stays
     // one sheet: stacking it would promise a second tab that never appears.
     let tabs = panes.div_ceil(per_tab.max(1));
+    // The slot the reader's own pane lands in, when it is one of the agents.
+    let mine = snapshot
+        .map(|snapshot| pane_number(&snapshot.source))
+        .and_then(|mine| names.iter().position(|name| *name == mine))
+        .and_then(|index| ids.get(index).cloned());
     let panel = Panel::new(gather_caption(panes, config, &config.gather.tab_label), shape)
-        .labeling(named(&ids, names));
-    vec![if tabs > 1 {
+        .labeling(named(&ids, names))
+        .marking(mine.into_iter().collect());
+    let after = if tabs > 1 {
         panel.behind(config.gather.tab_label.clone())
     } else {
         panel
-    }]
+    };
+
+    // Before and after, like every other operation. The "before" is only
+    // available when the agents can be found in this snapshot; with the scope
+    // set past it, the result alone is all that can honestly be drawn.
+    match snapshot.and_then(|snapshot| scattered_now(snapshot, config)) {
+        Some(before) => vec![before, after],
+        None => vec![after],
+    }
 }
 
 /// Where undoing would put the panes back.
@@ -579,11 +657,29 @@ pub(super) const ARRIVING: &str = "\u{1}arriving";
 pub(super) fn legend(panels: &[Panel], snapshot: &Snapshot) -> Vec<String> {
     /// Enough to name the panes in a picture without crowding out the picture.
     const MOST: usize = 4;
-    let mut seen: Vec<&str> = Vec::new();
+    // A slot in a tab that does not exist yet is labelled with a pane's name
+    // rather than its id — a Gather draws where each agent will land. Look
+    // those back up by name, or the list would leave out exactly the panes the
+    // picture is about.
+    let by_name = |name: &str| -> Option<&Pane> {
+        snapshot
+            .tabs
+            .iter()
+            .flat_map(|tab| tab.panes.iter())
+            .find(|pane| pane_number(pane) == name)
+    };
+    let mut seen: Vec<String> = Vec::new();
     for panel in panels {
-        for (id, _) in &panel.labels {
-            if !seen.iter().any(|known| *known == id.as_str()) {
-                seen.push(id);
+        for (id, name) in &panel.labels {
+            let found = match snapshot.pane(id) {
+                Some(pane) => pane.pane_id.clone(),
+                None => match by_name(name) {
+                    Some(pane) => pane.pane_id.clone(),
+                    None => continue,
+                },
+            };
+            if !seen.contains(&found) {
+                seen.push(found);
             }
         }
     }
@@ -601,7 +697,7 @@ pub(super) fn legend(panels: &[Panel], snapshot: &Snapshot) -> Vec<String> {
     let gutter = "  ".to_string();
 
     seen.iter()
-        .filter_map(|id| snapshot.pane(id).map(|pane| (*id, pane)))
+        .filter_map(|id| snapshot.pane(id).map(|pane| (id.as_str(), pane)))
         .take(MOST)
         .map(|(id, pane)| {
             let mark = if filled == Some(id) {
@@ -832,7 +928,7 @@ mod preview_tests {
         // the part worth showing, so "not counted" must not mean "not drawn".
         let mut config = Config::default();
         config.gather.max_panes_per_tab = 4;
-        let panels = gather_panels(0, &[], &config);
+        let panels = gather_panels(0, &[], None, &config);
         assert_eq!(panels.len(), 1);
         assert_eq!(panes_in(&panels[0]), 4, "a full tab is drawn");
         assert_eq!(panels[0].caption, config.gather.tab_label);
@@ -843,11 +939,11 @@ mod preview_tests {
         // Four boxes when two agents are running is a picture of something
         // that will not happen. The count comes from the panes on screen.
         let config = Config::default();
-        let panels = gather_panels(0, &["p1".to_string(), "p2".to_string()], &config);
+        let panels = gather_panels(0, &["p1".to_string(), "p2".to_string()], None, &config);
         assert_eq!(panes_in(&panels[0]), 2);
         // Three keep the top agent's column full height, with the other two
         // stacked beside it.
-        let panels = gather_panels(0, &["p1".to_string(), "p2".to_string(), "p3".to_string()], &config);
+        let panels = gather_panels(0, &["p1".to_string(), "p2".to_string(), "p3".to_string()], None, &config);
         assert_eq!(panes_in(&panels[0]), 3);
         assert_eq!(signature(3), {
             let id = |n: usize| format!("{ARRIVING}{n}");
@@ -861,7 +957,7 @@ mod preview_tests {
         config.gather.max_panes_per_tab = 2;
         // Six agents fill three tabs; the picture shows the first one, and
         // the caption carries the rest.
-        let panels = gather_panels(0, &["p1".to_string(), "p2".to_string(), "p3".to_string(), "p4".to_string(), "p5".to_string(), "p6".to_string()], &config);
+        let panels = gather_panels(0, &["p1".to_string(), "p2".to_string(), "p3".to_string(), "p4".to_string(), "p5".to_string(), "p6".to_string()], None, &config);
         assert_eq!(panes_in(&panels[0]), 2);
         assert_eq!(panels[0].caption, format!("{} ×3", config.gather.tab_label));
     }
@@ -962,3 +1058,4 @@ mod preview_tests {
         assert!(undo_panels(&swap, "w1:p1").is_empty());
     }
 }
+

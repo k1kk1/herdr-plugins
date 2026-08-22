@@ -382,7 +382,7 @@ fn manager_menu(
         Row::item("Gather Active Agents")
             .hotkey("g")
             .secondary(gather_note)
-            .panels(gather_panels(collecting, &ready, config)),
+            .panels(gather_panels(collecting, &ready, Some(snapshot), config)),
         Choice::Gather,
     );
     if gathered.is_some() {
