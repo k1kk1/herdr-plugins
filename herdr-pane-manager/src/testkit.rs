@@ -183,6 +183,7 @@ fn expression(
         let right = term(tokens, cursor, tab_id, focused);
         left = Shape::Split {
             side,
+            ratio: herdr_plugin_kit::layout::EVEN,
             first: Box::new(left),
             second: Box::new(right),
         };

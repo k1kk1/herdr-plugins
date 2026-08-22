@@ -62,20 +62,8 @@ fn menu(
     let panes = layout.root.pane_ids();
     let preview_panes = preview_panes(herdr, source, &panes);
     let current = Shape::from_layout(&layout.root);
-    // Zoom is a toggle, so its preview has to describe the state *after* the
-    // key is taken, rather than merely showing the current split tree.
-    let zoom_preview = if layout.zoomed {
-        current
-            .clone()
-            .map(|shape| (shape, vec![source.pane_id.clone()]))
-    } else {
-        Some((Shape::pane(&source.pane_id), vec![source.pane_id.clone()]))
-    };
-    let zoom_current = if layout.zoomed {
-        Some(Shape::pane(&source.pane_id))
-    } else {
-        current.clone()
-    };
+    let (zoom_current, zoom_preview) =
+        zoom_previews(current.as_ref(), &source.pane_id, layout.zoomed);
     let pane_legend = preview_panes
         .iter()
         .map(|pane| format!("{} {}", pane.number, short_label(&pane.label)))
@@ -93,7 +81,8 @@ fn menu(
             } else {
                 format!(" · {pane_legend}")
             }
-        ));
+        ))
+        .no_preview("この操作は Pane の配置を変えません");
 
     menu.item(
         Row::item("Equalize")
@@ -144,18 +133,18 @@ fn menu(
             arrangement.description().to_string()
         };
         menu.item(
-                Row::item(arrangement.title())
-                    .hotkey(arrangement.hotkey())
-                    .secondary(note)
-                    .panels(transition_panels(
-                        current.as_ref(),
-                        arrangement_preview(arrangement, &panes, &source.pane_id),
-                        &preview_panes,
-                        &source.pane_id,
-                        "実行後",
-                    )),
-                Choice::Arrange(arrangement),
-            );
+            Row::item(arrangement.title())
+                .hotkey(arrangement.hotkey())
+                .secondary(note)
+                .panels(transition_panels(
+                    current.as_ref(),
+                    arrangement_preview(arrangement, &panes, &source.pane_id),
+                    &preview_panes,
+                    &source.pane_id,
+                    "実行後",
+                )),
+            Choice::Arrange(arrangement),
+        );
     }
 
     let saved = template::load();
@@ -254,6 +243,31 @@ fn preview_panes(herdr: &Herdr, source: &Pane, pane_ids: &[String]) -> Vec<Previ
             }
         })
         .collect()
+}
+
+/// The visible state before and after toggling Zoom.
+///
+/// `layout.export` always carries the full split tree, even while one pane is
+/// zoomed. Turning that tree directly into the left panel made Zoom-out look
+/// unchanged, so the current side must collapse to the pane that is actually
+/// filling the screen.
+fn zoom_previews(
+    full: Option<&Shape>,
+    current_pane: &str,
+    zoomed: bool,
+) -> (Option<Shape>, Option<(Shape, Vec<String>)>) {
+    let marked = vec![current_pane.to_string()];
+    if zoomed {
+        (
+            Some(Shape::pane(current_pane)),
+            full.cloned().map(|shape| (shape, marked)),
+        )
+    } else {
+        (
+            full.cloned(),
+            Some((Shape::pane(current_pane), marked)),
+        )
+    }
 }
 
 /// Draw one real tab before and after an operation, using the same pane labels
@@ -391,4 +405,86 @@ fn pick_saved(term: &mut Term) -> Result<Option<String>> {
         );
     }
     menu.run(term)
+}
+
+#[cfg(test)]
+mod preview_tests {
+    use super::*;
+
+    fn panes() -> Vec<PreviewPane> {
+        vec![
+            PreviewPane {
+                id: "p1".into(),
+                number: "1".into(),
+                label: "Codex".into(),
+            },
+            PreviewPane {
+                id: "p2".into(),
+                number: "2".into(),
+                label: "Claude".into(),
+            },
+            PreviewPane {
+                id: "p3".into(),
+                number: "3".into(),
+                label: "Shell".into(),
+            },
+        ]
+    }
+
+    fn current() -> Shape {
+        let mut shape = Shape::pane("p1");
+        shape.split("p1", "p2", herdr_plugin_kit::layout::Side::Right);
+        shape.split("p2", "p3", herdr_plugin_kit::layout::Side::Down);
+        shape
+    }
+
+    #[test]
+    fn an_arrangement_preview_shows_current_then_the_real_planned_result() {
+        let ids = vec!["p1".to_string(), "p2".to_string(), "p3".to_string()];
+        let after = arrangement_preview(Arrangement::Rows, &ids, "p2");
+        let panels = transition_panels(Some(&current()), after, &panes(), "p2", "実行後");
+
+        assert_eq!(panels.len(), 2);
+        assert_eq!(panels[0].caption, "現在");
+        assert_eq!(panels[1].caption, "実行後");
+        assert_eq!(
+            panels[0].shape.as_ref().map(Shape::signature).unwrap(),
+            "(r p1 (d p2 p3))"
+        );
+        assert_eq!(
+            panels[1].shape.as_ref().map(Shape::signature).unwrap(),
+            "(d p1 (d p2 p3))"
+        );
+        assert_eq!(panels[0].labels, panels[1].labels);
+        assert_eq!(panels[0].marked, vec!["p2".to_string()]);
+        assert_eq!(panels[1].marked, vec!["p2".to_string()]);
+    }
+
+    #[test]
+    fn zoom_preview_uses_the_state_that_is_really_visible_on_each_side() {
+        let full = current();
+        let (before, after) = zoom_previews(Some(&full), "p2", false);
+        assert_eq!(before.as_ref().map(Shape::signature).unwrap(), full.signature());
+        assert_eq!(after.unwrap().0.signature(), "p2");
+
+        let (before, after) = zoom_previews(Some(&full), "p2", true);
+        assert_eq!(before.unwrap().signature(), "p2");
+        assert_eq!(after.unwrap().0.signature(), full.signature());
+    }
+
+    #[test]
+    fn saving_draws_one_unchanged_panel_instead_of_a_fake_transition() {
+        let panels = current_panel(Some(&current()), &panes(), "p1", "保存する形");
+        assert_eq!(panels.len(), 1);
+        assert_eq!(panels[0].caption, "保存する形");
+        assert_eq!(panels[0].marked, vec!["p1".to_string()]);
+    }
+
+    #[test]
+    fn an_invalid_saved_layout_draws_no_result() {
+        let layout = template::Template::Slot;
+        let ids = vec!["p1".to_string(), "p2".to_string(), "p3".to_string()];
+        let after = saved_preview(&layout, &ids, "p1");
+        assert!(transition_panels(Some(&current()), after, &panes(), "p1", "実行後").is_empty());
+    }
 }

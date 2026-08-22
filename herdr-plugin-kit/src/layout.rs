@@ -185,6 +185,7 @@ fn emit(node: &Shape, out: &mut Vec<Placement>) {
         side,
         first,
         second,
+        ..
     } = node
     else {
         return;
@@ -244,15 +245,25 @@ pub fn char_width(ch: char) -> usize {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Shape {
     Pane(String),
     Split {
         side: Side,
+        /// Share of the space the `first` branch keeps, as Herdr reports it.
+        ///
+        /// The API has always sent this and the diagrams always threw it away,
+        /// so a tab split 70/30 was drawn 50/50 — the arrangement right, the
+        /// sizes wrong. A split this code invents rather than reads is
+        /// [`EVEN`], because that is what Herdr will make.
+        ratio: f32,
         first: Box<Shape>,
         second: Box<Shape>,
     },
 }
+
+/// The ratio of a split nobody has asked to be uneven.
+pub const EVEN: f32 = 0.5;
 
 impl Shape {
     /// A box diagram of the arrangement, one string per line.
@@ -457,7 +468,7 @@ impl Shape {
                 *seen += 1;
                 (pane == id).then_some(*seen)
             }
-            Shape::Split { side, first, second } => {
+            Shape::Split { side, first, second, .. } => {
                 let (a, b) = match side {
                     Side::Left | Side::Up => (second, first),
                     Side::Right | Side::Down => (first, second),
@@ -465,6 +476,25 @@ impl Shape {
                 a.find(id, seen).or_else(|| b.find(id, seen))
             }
         }
+    }
+
+    /// Where to cut `total` cells so the first branch gets `share` of them.
+    ///
+    /// Never nothing and never everything: a pane with no cells vanishes from
+    /// a picture that still looks complete, which is worse than a pane drawn
+    /// one cell wider than it really is.
+    fn cut_cells(total: usize, share: f32) -> usize {
+        // Nothing to divide: one cell cannot hold two panes, and pretending
+        // otherwise leaves the second branch a negative width.
+        if total <= 1 {
+            return total.saturating_sub(1);
+        }
+        let share = if share.is_finite() {
+            share.clamp(0.0, 1.0)
+        } else {
+            EVEN
+        };
+        ((total as f32 * share).round() as usize).clamp(1, total - 1)
     }
 
     fn rasterise(
@@ -486,19 +516,27 @@ impl Shape {
                     }
                 }
             }
-            Shape::Split { side, first, second } => {
-                let (a, b) = match side {
-                    Side::Left | Side::Up => (second, first),
-                    Side::Right | Side::Down => (first, second),
+            Shape::Split {
+                side,
+                ratio,
+                first,
+                second,
+            } => {
+                // `ratio` is the share `first` keeps. Where the two branches
+                // are drawn the other way round, the leading share is what is
+                // left over.
+                let (a, b, share) = match side {
+                    Side::Left | Side::Up => (second, first, 1.0 - *ratio),
+                    Side::Right | Side::Down => (first, second, *ratio),
                 };
                 match side {
                     Side::Left | Side::Right => {
-                        let cut = (w / 2).max(1).min(w.saturating_sub(1));
+                        let cut = Self::cut_cells(w, share);
                         a.rasterise(grid, x, y, cut, h, next);
                         b.rasterise(grid, x + cut, y, w - cut, h, next);
                     }
                     Side::Up | Side::Down => {
-                        let cut = (h / 2).max(1).min(h.saturating_sub(1));
+                        let cut = Self::cut_cells(h, share);
                         a.rasterise(grid, x, y, w, cut, next);
                         b.rasterise(grid, x, y + cut, w, h - cut, next);
                     }
@@ -516,6 +554,7 @@ impl Shape {
             Shape::Pane(id) if id == target => {
                 *self = Shape::Split {
                     side,
+                    ratio: EVEN,
                     first: Box::new(Shape::Pane(target.to_string())),
                     second: Box::new(Shape::Pane(new_pane.to_string())),
                 };
@@ -539,6 +578,7 @@ impl Shape {
             Shape::Pane(pane) => (pane != id).then(|| self.clone()),
             Shape::Split {
                 side,
+                ratio,
                 first,
                 second,
             } => match (first.without(id), second.without(id)) {
@@ -547,6 +587,7 @@ impl Shape {
                 (None, Some(rest)) | (Some(rest), None) => Some(rest),
                 (Some(a), Some(b)) => Some(Shape::Split {
                     side: *side,
+                    ratio: *ratio,
                     first: Box::new(a),
                     second: Box::new(b),
                 }),
@@ -597,6 +638,7 @@ impl Shape {
                 side,
                 first,
                 second,
+                ..
             } => format!(
                 "({} {} {})",
                 &side.as_str()[..1],
@@ -615,11 +657,12 @@ impl Shape {
             LayoutNode::Pane { pane_id } => pane_id.clone().map(Shape::Pane),
             LayoutNode::Split {
                 direction,
+                ratio,
                 first,
                 second,
-                ..
             } => Some(Shape::Split {
                 side: Side::parse(direction)?,
+                ratio: *ratio,
                 first: Box::new(Shape::from_layout(first)?),
                 second: Box::new(Shape::from_layout(second)?),
             }),
@@ -634,6 +677,7 @@ mod without_tests {
     fn split(side: Side, a: Shape, b: Shape) -> Shape {
         Shape::Split {
             side,
+            ratio: EVEN,
             first: Box::new(a),
             second: Box::new(b),
         }
@@ -676,6 +720,7 @@ mod sketch_tests {
     fn split(side: Side, first: Shape, second: Shape) -> Shape {
         Shape::Split {
             side,
+            ratio: EVEN,
             first: Box::new(first),
             second: Box::new(second),
         }
@@ -918,21 +963,61 @@ mod label_width_tests {
 
 
 #[cfg(test)]
-mod crowding_demo {
+mod ratio_tests {
     use super::*;
+
+    fn widths(shape: &Shape, cells: usize) -> Vec<usize> {
+        let mut grid = vec![vec![0usize; cells]; 2];
+        let mut next = 0;
+        shape.rasterise(&mut grid, 0, 0, cells, 2, &mut next);
+        let mut counts = vec![0usize; shape.pane_ids().len() + 1];
+        for cell in &grid[0] {
+            counts[*cell] += 1;
+        }
+        counts[1..].to_vec()
+    }
+
+    fn uneven(ratio: f32) -> Shape {
+        Shape::Split {
+            side: Side::Right,
+            ratio,
+            first: Box::new(Shape::Pane("a".into())),
+            second: Box::new(Shape::Pane("b".into())),
+        }
+    }
+
     #[test]
-    fn show() {
-        let mut shape = Shape::pane("p0");
-        for n in 1..10 {
-            shape.split(&format!("p{}", n - 1), &format!("p{n}"), if n % 2 == 0 { Side::Down } else { Side::Right });
+    fn a_split_is_drawn_at_the_ratio_herdr_reports() {
+        // The API has always sent this and the diagrams always dropped it, so
+        // a tab split 70/30 was drawn 50/50.
+        assert_eq!(widths(&uneven(0.7), 10), [7, 3]);
+        assert_eq!(widths(&uneven(0.25), 8), [2, 6]);
+        assert_eq!(widths(&uneven(EVEN), 10), [5, 5]);
+    }
+
+    #[test]
+    fn a_lopsided_split_never_leaves_a_pane_with_nothing() {
+        // A pane with no cells vanishes from a picture that still looks
+        // complete, which is worse than one drawn a cell too wide.
+        for ratio in [0.0, 0.01, 0.99, 1.0, f32::NAN] {
+            let widths = widths(&uneven(ratio), 4);
+            assert!(widths.iter().all(|w| *w > 0), "{ratio}: {widths:?}");
         }
-        let labels: Vec<(String, String)> = (0..10).map(|n| (format!("p{n}"), format!("p{n}"))).collect();
-        let refs: Vec<(&str, &str)> = labels.iter().map(|(a, b)| (a.as_str(), b.as_str())).collect();
-        for h in [2usize, 3, 6] {
-            println!("--- cells {h}");
-            for line in shape.diagram_marking_labeled(12, h, &["p9"], &refs) {
-                println!("{line}");
-            }
-        }
+    }
+
+    #[test]
+    fn a_split_this_code_invents_is_even() {
+        // Herdr will make it even, so the preview says even.
+        let mut shape = Shape::pane("a");
+        shape.split("a", "b", Side::Right);
+        assert_eq!(widths(&shape, 10), [5, 5]);
+    }
+
+    #[test]
+    fn the_signature_still_describes_the_arrangement_alone() {
+        // Ratios belong in the picture, not in the text the tests compare:
+        // `(r a b)` is what a reader can check at a glance.
+        assert_eq!(uneven(0.7).signature(), "(r a b)");
+        assert_eq!(uneven(EVEN).signature(), "(r a b)");
     }
 }

@@ -136,6 +136,7 @@ fn beside(shape: &Shape, pane_id: &str) -> Option<(String, Side)> {
             side,
             first,
             second,
+            ..
         } => {
             if matches!(&**first, Shape::Pane(id) if id == pane_id) {
                 return leading_pane(second).map(|neighbour| (neighbour, opposite(*side)));
