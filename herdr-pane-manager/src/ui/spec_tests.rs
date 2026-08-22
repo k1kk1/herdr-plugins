@@ -175,22 +175,32 @@ fn split_next_to_fills_the_pane_that_arrives() {
 }
 
 #[test]
-fn a_swap_inside_one_tab_keeps_the_shape_and_trades_the_names() {
+fn a_swap_inside_one_tab_shows_the_names_trading_places() {
     let snapshot = testkit::session("t1: p5 | p1*");
     let target = snapshot.pane(&testkit::pane("p5")).unwrap().clone();
     let panels = swap_panels(&snapshot, &target);
-    // One tab, one picture: nothing moves between tabs.
-    assert_eq!(drawn(&panels), ["(r w1:p5 w1:p1)"]);
-    // p5's slot now reads p1 and p1's slot reads p5.
+    // Before and after. The shape never changes — the panes trade contents,
+    // not positions — so the exchange is visible only in the names.
+    assert_eq!(drawn(&panels), ["(r w1:p5 w1:p1)", "(r w1:p5 w1:p1)"]);
+    // The same tab name over both sides says the trade happens inside it.
+    assert_eq!(panels[0].caption, panels[1].caption);
     assert_eq!(
         panels[0].labels,
+        vec![
+            (testkit::pane("p5"), "p5".to_string()),
+            (testkit::pane("p1"), "p1".to_string()),
+        ]
+    );
+    assert_eq!(
+        panels[1].labels,
         vec![
             (testkit::pane("p5"), "p1".to_string()),
             (testkit::pane("p1"), "p5".to_string()),
         ]
     );
-    // The fill follows the reader into p5's old slot.
-    assert_eq!(panels[0].marked, vec![testkit::pane("p5")]);
+    // The fill follows the reader from their own slot into p5's.
+    assert_eq!(panels[0].marked, vec![testkit::pane("p1")]);
+    assert_eq!(panels[1].marked, vec![testkit::pane("p5")]);
 }
 
 #[test]
@@ -341,19 +351,40 @@ fn the_legend_names_every_pane_the_picture_mentions() {
 
     let panels = operation_preview(&Choice::Merge, &snapshot, &Config::default());
     let lines = legend(&panels, &snapshot);
-    // The shading first, saying which pane it stands for, then every pane
-    // once in the order the picture introduces it — with the name a person
-    // recognises rather than the id alone.
-    assert_eq!(lines.len(), 4);
-    assert_eq!(lines[0], "░ p1");
-    assert!(lines[1].starts_with("p5: "));
-    assert!(lines[1].contains("review"));
-    assert!(lines[1].ends_with("| codex"));
-    assert!(lines[2].starts_with("p1: "));
-    assert!(lines[2].ends_with("| claude"));
+    // Every pane once, in the order the picture introduces it, with the name
+    // a person recognises rather than the id alone. The filled one is marked
+    // on its own line rather than on a line of its own.
+    assert_eq!(lines.len(), 3);
+    assert_eq!(lines[0], "  p5: review | codex");
+    assert_eq!(lines[1], "░ p1: pane manager | claude");
     // pB has no agent, so it is named without one.
-    assert!(lines[3].starts_with("pB: "));
-    assert!(!lines[3].contains('|'));
+    assert!(lines[2].starts_with("  pB: "));
+    assert!(!lines[2].contains('|'));
+}
+
+#[test]
+fn only_the_readers_own_line_is_marked() {
+    // A Swap shades one slot before and the other after. Reading the marks off
+    // the panels therefore marked both lines; the fill stands for one pane.
+    let mut snapshot = testkit::session("t1: p1* | p5");
+    snapshot.tabs[0].panes[0].agent = Some("claude".into());
+    snapshot.tabs[0].panes[1].agent = Some("codex".into());
+    let target = snapshot.pane(&testkit::pane("p5")).unwrap().clone();
+    let lines = legend(&swap_panels(&snapshot, &target), &snapshot);
+    assert_eq!(lines, ["░ p1: Claude", "  p5: Codex"]);
+}
+
+#[test]
+fn a_legend_line_names_its_agent_only_once() {
+    // `p1: Claude · herdr-plugins | claude` said the same thing twice: the
+    // compact form already leads with the agent. A pane with a name of its
+    // own does not, and there the kind is worth adding.
+    let mut snapshot = testkit::session("t1: p1* | p5");
+    snapshot.tabs[0].panes[0].agent = Some("claude".into());
+    snapshot.tabs[0].panes[1].agent = Some("codex".into());
+    snapshot.tabs[0].panes[1].label = Some("review".into());
+    assert_eq!(pane_line(&snapshot.tabs[0].panes[0]), "p1: Claude");
+    assert_eq!(pane_line(&snapshot.tabs[0].panes[1]), "p5: review | codex");
 }
 
 #[test]

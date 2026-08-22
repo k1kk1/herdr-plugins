@@ -587,28 +587,35 @@ pub(super) fn legend(panels: &[Panel], snapshot: &Snapshot) -> Vec<String> {
             }
         }
     }
-    let mut lines: Vec<String> = seen
-        .iter()
-        .filter_map(|id| snapshot.pane(id))
-        .take(MOST)
-        .map(pane_line)
-        .collect();
-
     // What the filled box means, said with the fill itself rather than with a
-    // sentence: `░ p1`. The reader can see the shading; what they cannot see
-    // is which pane it stands for, and the line under it then says what that
-    // pane is running.
-    let filled: Vec<String> = panels
+    // sentence — and said on the line that already names that pane, because a
+    // line of its own repeated the name for nothing.
+    //
+    // The fill always stands for the reader's own pane. Collecting it from the
+    // panels instead marked two lines in a Swap, where the shading moves from
+    // one slot to the other and both slots are marked across the pair.
+    let filled = panels
         .iter()
-        .flat_map(|panel| panel.marked.iter())
-        .filter_map(|id| snapshot.pane(id))
-        .map(|pane| pane_number(&pane.clone()))
-        .collect();
-    if let Some(name) = filled.first() {
-        lines.insert(0, format!("{} {name}", herdr_plugin_kit::layout::HIGHLIGHT));
-    }
-    lines
+        .any(|panel| !panel.marked.is_empty())
+        .then(|| snapshot.source.pane_id.as_str());
+    let gutter = "  ".to_string();
+
+    seen.iter()
+        .filter_map(|id| snapshot.pane(id).map(|pane| (*id, pane)))
+        .take(MOST)
+        .map(|(id, pane)| {
+            let mark = if filled == Some(id) {
+                format!("{MARK} ")
+            } else {
+                gutter.clone()
+            };
+            format!("{mark}{}", pane_line(pane))
+        })
+        .collect()
 }
+
+/// The fill, as one character, for the line that explains it.
+pub(super) const MARK: char = herdr_plugin_kit::layout::HIGHLIGHT;
 
 /// A row whose picture comes with the names of what is in it.
 pub(super) fn illustrated(row: Row, panels: Vec<Panel>, snapshot: &Snapshot) -> Row {
@@ -620,10 +627,16 @@ pub(super) fn pane_line(pane: &Pane) -> String {
     let mut line = pane_number(pane);
     line.push(':');
     line.push(' ');
-    line.push_str(&label::pane_compact(pane));
+    let compact = label::pane_compact(pane);
+    line.push_str(&compact);
+    // `Claude · herdr-plugins | claude` says the same thing twice: the compact
+    // form already leads with the agent unless the pane has a name of its own.
+    // Then, and only then, the kind is worth adding.
     if let Some(agent) = pane.display_agent.as_ref().or(pane.agent.as_ref()) {
-        line.push_str(" | ");
-        line.push_str(agent);
+        if !compact.to_lowercase().contains(&agent.to_lowercase()) {
+            line.push_str(" | ");
+            line.push_str(agent);
+        }
     }
     line
 }
@@ -674,6 +687,7 @@ pub(super) fn split_beside(tab: &TabEntry, target: &str, arriving: &Pane, side: 
 /// ends up.
 pub(super) fn swap_panels(snapshot: &Snapshot, target: &Pane) -> Vec<Panel> {
     let source = &snapshot.source;
+    #[allow(clippy::type_complexity)]
     let named = |tab: &TabEntry, swap: &(String, String)| -> Vec<(String, String)> {
         tab.panes
             .iter()
@@ -700,15 +714,36 @@ pub(super) fn swap_panels(snapshot: &Snapshot, target: &Pane) -> Vec<Panel> {
         let Some(shape) = shape_of(here) else {
             return vec![Panel::unreadable(tab_number(here))];
         };
-        let mut labels = named(here, &(source.pane_id.clone(), pane_number(target)));
-        for (id, name) in &mut labels {
-            if *id == target.pane_id {
-                *name = pane_number(source);
-            }
-        }
-        return vec![Panel::new(tab_number(here), shape)
-            .marking(vec![target.pane_id.clone()])
-            .labeling(labels)];
+        // Before and after, like every other operation. The pair once carried
+        // the *same* names on both sides, which showed no exchange at all;
+        // that was the thing to fix, not the pair. Now the two names trade
+        // slots across the arrow, and the same tab name above both says the
+        // trade happens inside one tab.
+        let before: Vec<(String, String)> = here
+            .panes
+            .iter()
+            .map(|pane| (pane.pane_id.clone(), pane_number(pane)))
+            .collect();
+        let after: Vec<(String, String)> = before
+            .iter()
+            .map(|(id, name)| {
+                if *id == source.pane_id {
+                    (id.clone(), pane_number(target))
+                } else if *id == target.pane_id {
+                    (id.clone(), pane_number(source))
+                } else {
+                    (id.clone(), name.clone())
+                }
+            })
+            .collect();
+        return vec![
+            Panel::new(tab_number(here), shape.clone())
+                .marking(vec![source.pane_id.clone()])
+                .labeling(before),
+            Panel::new(tab_number(here), shape)
+                .marking(vec![target.pane_id.clone()])
+                .labeling(after),
+        ];
     }
 
     let (Some(left), Some(right)) = (shape_of(here), shape_of(there)) else {
