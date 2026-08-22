@@ -65,7 +65,13 @@ pub fn socket_path() -> Result<PathBuf> {
 impl Herdr {
     /// Prepare a client, failing early if the server is not reachable.
     pub fn connect() -> Result<Self> {
-        Self::at(socket_path()?)
+        let client = Self::at(socket_path()?)?;
+        // Here the probe earns its place. Callers use the failure to mean "not
+        // inside a running Herdr" and act on it — the Sessions plugin opens a
+        // terminal window instead — so the answer has to arrive before any
+        // work is attempted, not part-way through it.
+        client.dial()?;
+        Ok(client)
     }
 
     /// Prepare a client for a socket other than this process's own.
@@ -74,13 +80,16 @@ impl Herdr {
     /// session's API can see any other. Reading a second session — what the
     /// Sessions plugin does to summarise the ones you are not in — means
     /// dialling that session's socket directly.
+    /// No connection is made here. Each call dials on its own — one request
+    /// per connection is Herdr's rule — so probing first only doubled the
+    /// count: the Sessions plugin lists ten sessions in what its own comment
+    /// calls ten connections, and it was making twenty. A socket nothing is
+    /// listening on fails on the first call, with the same message.
     pub fn at(path: impl Into<PathBuf>) -> Result<Self> {
-        let client = Self {
+        Ok(Self {
             path: path.into(),
             next_id: RefCell::new(0),
-        };
-        client.dial()?;
-        Ok(client)
+        })
     }
 
     /// A client for a socket nothing is listening on.

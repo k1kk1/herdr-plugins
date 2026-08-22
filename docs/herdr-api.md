@@ -8,6 +8,21 @@ Herdr 0.8.0 の plugin API には公開ドキュメントがないので、バ�
 
 ## 接続
 
+### キーボードプロトコルの問い合わせは返ってこない
+
+crossterm の `supports_keyboard_enhancement()` は端末に問い合わせを書いて応答を
+待ちます。**Herdr のペインからは応答が返らず、crossterm は 2000ms 待って諦めます。**
+
+実測（プラグイン起動から最初の描画まで）:
+
+```
+問い合わせあり   2026 ms
+問い合わせなし     22 ms
+```
+
+Herdr 自身は Kitty keyboard protocol を解するので、`HERDR_ENV` が立っていれば
+問い合わせずに「使える」と決めてよいです。
+
 `$HERDR_SOCKET_PATH`（既定 `~/.config/herdr/herdr.sock`）の Unix socket に、
 改行区切り JSON を送ります。
 
@@ -26,6 +41,27 @@ fn dial(&self) -> Result<UnixStream>   // 呼び出しのたびに接続
 
 `herdr` CLI を毎回起動する代わりに socket を直接使うのは、CLI が公開していない
 `layout.export` / `layout.set_split_ratio` / `tab.move` / `workspace.move` に届くからです。
+
+---
+
+## id の付き方
+
+Workspace / Tab / Pane の id は **base36** の連番です。
+
+```
+w1  w2 … w9  wA  wB … wZ  w10 …
+w2N:tM   w2N:p1   w2N:pB
+```
+
+- Tab は `w<n>:t<n>`、Pane は `w<n>:p<n>`。どちらも Workspace id が前に付きます
+- **数字に見えるのは値が小さいうちだけ**です。16 番目の Tab は `tG` になります
+- `tab.number` は**タブバーに表示される位置とは別物**です。位置が要るなら
+  `tab.list` の並び順を使います
+- Pane に `number` フィールドはありません
+
+プレビューなどで人に見せるときは、Pane は `p5` のような id で構いませんが、
+**Tab は id ではなくタブバーの表記（名前、無ければ位置）を使うべき**です。
+`t1` は番号に見えて、実際の値は `tM` だったりします。
 
 ---
 
@@ -86,6 +122,18 @@ Left / Up は **右|下に分割してから swap** して作ります。ユー�
 
 ## 分割ツリー
 
+### `layout.export` は比率も返す
+
+`LayoutNode::Split` は `direction` と `first` / `second` のほかに **`ratio`** を
+持ちます。`first` が取る割合です。図を描くときにここを捨てると、70:30 の Tab が
+50:50 に見えます。
+
+### 「Pane が1枚」と「読めなかった」は同じに見える
+
+Pane が1枚の Tab には分割木がありません。`layout.export` の失敗と区別が
+つかないので、呼び出し側で**成否そのものを覚えておかないと**、5枚の Tab を
+1枚として描くことになります。
+
 `layout.export` が Tab の split tree を返します。
 
 ```json
@@ -126,6 +174,14 @@ idle / working / blocked / done / unknown
 `unknown variant "done"` で拒否されます）。
 
 `done` は Herdr が内部で作る状態で、**`working` → `idle` の遷移**として発生します。
+
+### `idle` は「入力待ち」、`unknown` は「Agent がいない」
+
+`idle` は Claude Code や Codex が**あなたの入力を待っている**状態です。
+「対応不要」ではなく、むしろ手元に置きたいペインを指します。
+
+`unknown` は Agent が検出されていないペイン（素のシェル、ログ、dev server）が
+報告する値で、こちらは `agent.list` にも載りません。
 
 ```bash
 herdr pane report-agent PANE --source x --agent claude --state working
@@ -192,6 +248,24 @@ herdr pane get "$HERDR_PANE_ID"   # ここの workspace_id が本当の現在地
 
 プラグイン側の起動コンテキストは `HERDR_PLUGIN_ROOT` / `HERDR_PLUGIN_CONFIG_DIR` /
 `HERDR_PLUGIN_STATE_DIR` / `HERDR_PLUGIN_CONTEXT_JSON` / `HERDR_ACTIVE_PANE_ID` で渡ってきます。
+
+### popup プラグインペインに `HERDR_PANE_ID` は無い
+
+popup として起動したプラグインの環境には **`HERDR_PANE_ID` が入りません**（実測で
+`Err(NotPresent)`）。呼び出し元のペインは `HERDR_PLUGIN_CONTEXT_JSON` の
+`focused_pane_id` で渡ってきます。
+
+一方、**ユーザーのペイン内のシェルからプラグインの CLI を直接叩くと、
+そのペインの id が `HERDR_PANE_ID` に入っています**。
+
+```
+popup:  HERDR_PANE_ID=(無し)   CONTEXT_JSON.focused_pane_id=w2N:p1
+CLI:    HERDR_PANE_ID=w2N:p1
+```
+
+「自分自身のペインを一覧から除く」処理をこの変数だけで書くと、CLI 経路で
+**操作対象のペインが消えます**。除外する前に、操作対象と一致しないことを
+確かめる必要があります。
 
 ---
 

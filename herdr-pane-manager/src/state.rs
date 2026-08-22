@@ -69,17 +69,22 @@ pub struct Snapshot {
     /// Pane the operation acts on — the focused pane, or the pane the context
     /// menu was opened on.
     pub source: Pane,
-    /// Whether destinations in every workspace, including their real split
-    /// trees, have been read. The landing screen only needs the source and
-    /// next local tab, so it deliberately starts incomplete.
-    complete: bool,
+    /// Whether the other workspaces have been read.
+    ///
+    /// The landing screen needs only the source's own workspace, and reading
+    /// every other one delays a choice the reader may never make. Which split
+    /// trees are known is a separate question, answered per tab by
+    /// [`TabEntry::layout_known`] — one flag for the whole snapshot could not
+    /// tell "not asked" from "asked and refused", which is how a three-pane
+    /// tab came to be drawn as one box.
+    other_workspaces_read: bool,
 }
 
 impl Snapshot {
     /// Assemble a snapshot from parts, for tests and for fixtures.
     ///
-    /// `complete` is false: a hand-built session names only the tabs it cares
-    /// about, which is exactly the state the landing screen is in.
+    /// The other workspaces count as unread: a hand-built session names only
+    /// the tabs it cares about, which is the state the landing screen is in.
     #[cfg(test)]
     pub fn of(workspace: Workspace, tabs: Vec<TabEntry>, source: Pane) -> Self {
         Self {
@@ -87,7 +92,7 @@ impl Snapshot {
             tabs,
             other_workspaces: Vec::new(),
             source,
-            complete: false,
+            other_workspaces_read: false,
         }
     }
 
@@ -149,7 +154,7 @@ impl Snapshot {
             tabs,
             other_workspaces,
             source,
-            complete: true,
+            other_workspaces_read: true,
         })
     }
 
@@ -184,7 +189,7 @@ impl Snapshot {
             tabs,
             other_workspaces: Vec::new(),
             source,
-            complete: false,
+            other_workspaces_read: false,
         })
     }
 
@@ -266,7 +271,7 @@ impl Snapshot {
 
     /// Upgrade a landing-screen snapshot before opening a destination picker.
     pub fn full(&self, herdr: &Herdr) -> Result<Self> {
-        if self.complete {
+        if self.other_workspaces_read {
             Ok(self.clone())
         } else {
             self.refresh(herdr)
