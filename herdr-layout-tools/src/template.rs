@@ -10,6 +10,7 @@
 //! particular set of terminals.
 
 use std::collections::BTreeMap;
+use std::io::ErrorKind;
 
 use herdr_plugin_kit::herdr::LayoutNode;
 use herdr_plugin_kit::layout::{Placement, Plan, Side};
@@ -17,6 +18,7 @@ use herdr_plugin_kit::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::PLUGIN_ID;
+use crate::arrange::LayoutSpec;
 
 const FILE: &str = "layouts.json";
 
@@ -121,6 +123,13 @@ impl Template {
         out
     }
 
+    /// The complete target used by both the saved-layout preview and apply.
+    pub fn spec(&self, panes: &[String]) -> Result<LayoutSpec> {
+        let plan = self.plan(panes)?;
+        LayoutSpec::with_ratios(plan, &self.ratios())
+            .context("saved layout contains a ratio path that does not fit its shape")
+    }
+
     fn walk(&self, path: &mut Vec<bool>, out: &mut Vec<(Vec<bool>, f32)>) {
         let Template::Split {
             ratio,
@@ -167,40 +176,77 @@ fn path() -> Option<std::path::PathBuf> {
     herdr_plugin_kit::config::state_dir(PLUGIN_ID).map(|dir| dir.join(FILE))
 }
 
-/// Every saved layout, by name. A corrupt file reads as "none saved".
-pub fn load() -> Saved {
+/// Every saved layout, by name. The warning lets the menu surface corruption
+/// instead of making the layouts appear to have vanished.
+pub fn load_reporting() -> (Saved, Option<String>) {
     let Some(path) = path() else {
-        return Saved::new();
+        return (Saved::new(), None);
     };
-    std::fs::read_to_string(path)
-        .ok()
-        .and_then(|raw| serde_json::from_str(&raw).ok())
-        .unwrap_or_default()
+    match read_saved(&path) {
+        Ok(saved) => (saved, None),
+        Err(err) => (
+            Saved::new(),
+            Some(format!("Could not read saved layouts: {err}")),
+        ),
+    }
+}
+
+pub fn load() -> Saved {
+    load_reporting().0
 }
 
 pub fn save(name: &str, template: &Template) -> Result<()> {
     let Some(path) = path() else {
         bail!("Could not work out where to keep saved layouts.");
     };
-    let mut saved = load();
+    let mut saved = read_saved(&path)?;
     saved.insert(name.to_string(), template.clone());
-    let raw = serde_json::to_string_pretty(&saved)?;
-    std::fs::write(&path, raw)
-        .with_context(|| format!("could not write {}", path.display()))
+    write_saved(&path, &saved)
 }
 
 pub fn remove(name: &str) -> Result<bool> {
     let Some(path) = path() else {
         return Ok(false);
     };
-    let mut saved = load();
+    let mut saved = read_saved(&path)?;
     if saved.remove(name).is_none() {
         return Ok(false);
     }
-    let raw = serde_json::to_string_pretty(&saved)?;
-    std::fs::write(&path, raw)
-        .with_context(|| format!("could not write {}", path.display()))?;
+    write_saved(&path, &saved)?;
     Ok(true)
+}
+
+fn read_saved(path: &std::path::Path) -> Result<Saved> {
+    let raw = match std::fs::read_to_string(path) {
+        Ok(raw) => raw,
+        Err(err) if err.kind() == ErrorKind::NotFound => return Ok(Saved::new()),
+        Err(err) => {
+            return Err(err).with_context(|| format!("could not read {}", path.display()))
+        }
+    };
+    serde_json::from_str(&raw)
+        .with_context(|| format!("{} contains invalid JSON", path.display()))
+}
+
+/// Replace the file atomically, so a crash cannot leave half-written JSON.
+fn write_saved(path: &std::path::Path, saved: &Saved) -> Result<()> {
+    let raw = serde_json::to_string_pretty(saved)?;
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let temporary = path.with_file_name(format!(
+        ".{FILE}.{}.{}.tmp",
+        std::process::id(),
+        nonce
+    ));
+    std::fs::write(&temporary, raw)
+        .with_context(|| format!("could not write {}", temporary.display()))?;
+    if let Err(err) = std::fs::rename(&temporary, path) {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(err).with_context(|| format!("could not replace {}", path.display()));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -284,10 +330,58 @@ mod tests {
     }
 
     #[test]
+    fn saved_spec_preserves_the_ratios_used_by_its_preview() {
+        let spec = sample().spec(&ids(3)).unwrap();
+        assert_eq!(spec.ratios(), sample().ratios());
+    }
+
+    #[test]
     fn a_single_pane_layout_needs_no_splits() {
         let plan = Template::Slot.plan(&ids(1)).unwrap();
         assert!(plan.placements.is_empty());
         assert!(Template::Slot.ratios().is_empty());
+    }
+
+    #[test]
+    fn corrupt_storage_is_reported_instead_of_treated_as_empty() {
+        let dir = std::env::temp_dir().join(format!(
+            "herdr-layout-tools-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join(FILE);
+        std::fs::write(&file, "{broken").unwrap();
+
+        let err = read_saved(&file).unwrap_err().to_string();
+        assert!(err.contains("invalid JSON"), "{err}");
+
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn storage_replacement_leaves_a_complete_json_file() {
+        let dir = std::env::temp_dir().join(format!(
+            "herdr-layout-tools-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join(FILE);
+        let mut saved = Saved::new();
+        saved.insert("sample".into(), sample());
+
+        write_saved(&file, &saved).unwrap();
+        assert_eq!(read_saved(&file).unwrap(), saved);
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

@@ -14,14 +14,9 @@ use herdr_plugin_kit::herdr::{Direction, Herdr, Layout, Pane};
 use herdr_plugin_kit::label;
 use herdr_plugin_kit::{anyhow, Context, Outcome, Result};
 
-use crate::arrange::{Arrangement, Plan, Shape};
+use crate::arrange::{Arrangement, LayoutSpec, Plan, Shape};
 use crate::template::{self, Template};
 
-/// Even out every split in a tab so all panes get the same area.
-///
-/// A split's ratio is the share of space its first branch takes, so an even
-/// layout wants `leaves(first) / leaves(split)` — not 0.5, which would only be
-/// right for perfectly balanced trees.
 /// Toggle zoom on one pane.
 ///
 /// The same `pane.zoom` call Herdr's own zoom key makes. It lives here so the
@@ -47,21 +42,38 @@ pub fn zoom(herdr: &Herdr, pane: &Pane) -> Result<Outcome> {
     Ok(Outcome::new(format!("{verb} \"{}\"", label::pane_compact(pane))))
 }
 
+/// Even out every split in a tab so all panes get the same area.
+///
+/// A split's ratio is the share of space its first branch takes, so an even
+/// layout wants `leaves(first) / leaves(split)` — not 0.5, which would only be
+/// right for perfectly balanced trees.
 pub fn equalize(herdr: &Herdr, tab_id: &str) -> Result<Outcome> {
     let layout = herdr
         .layout(tab_id)
         .with_context(|| "Could not read the layout of this tab.")?;
 
-    let splits = layout.root.splits();
-    if splits.is_empty() {
+    let Some(current) = Shape::from_layout(&layout.root) else {
+        return Err(anyhow!("Herdr returned an unreadable layout tree."));
+    };
+    if current.pane_ids().len() < 2 {
         return Ok(Outcome::new("This tab has only one pane."));
     }
 
-    for (path, first_leaves, total_leaves) in &splits {
-        let ratio = *first_leaves as f32 / *total_leaves as f32;
-        herdr
-            .set_split_ratio(tab_id, path, ratio)
-            .with_context(|| "Could not resize the panes in this tab.")?;
+    let target = LayoutSpec::equalized_shape(&current);
+    let previous = LayoutSpec {
+        plan: Plan::from_shape(&current),
+        shape: current,
+    };
+    if let Err(err) = apply_ratios(herdr, tab_id, &target)
+        .with_context(|| "Could not resize the panes in this tab.")
+        .and_then(|_| verify(herdr, tab_id, &target))
+    {
+        let restored = apply_ratios(herdr, tab_id, &previous).is_ok();
+        return Err(if restored {
+            anyhow!("{err}\nThe previous proportions were restored.")
+        } else {
+            anyhow!("{err}\nSome proportions could not be put back.")
+        });
     }
 
     let panes = layout.root.leaf_count();
@@ -80,7 +92,7 @@ pub fn arrange(
         .with_context(|| "Could not read the layout of this tab.")?;
     let panes = layout.root.pane_ids();
 
-    let Some(plan) = arrangement.plan(&panes, main) else {
+    let Some(spec) = arrangement.spec(&panes, main) else {
         return Ok(Outcome::new(format!(
             "{} needs at least two panes in the tab.",
             arrangement.title()
@@ -88,20 +100,12 @@ pub fn arrange(
     };
 
     let count = panes.len();
-    let already_arranged = Shape::from_layout(&layout.root)
-        .map(|current| current == plan.simulate())
-        .unwrap_or(false);
-
-    if !already_arranged {
-        rebuild(herdr, tab_id, &plan, &layout)?;
-    }
-
-    // A rebuilt tab starts out with every split at 0.5, which for a nested
-    // chain is visibly lopsided, so an arrangement always ends level.
-    let _ = equalize(herdr, tab_id);
+    apply_spec(herdr, tab_id, &spec, &layout)?;
 
     if let Some(focused) = &layout.focused_pane_id {
-        let _ = herdr.focus_pane(focused);
+        herdr
+            .focus_pane(focused)
+            .with_context(|| "The layout changed, but the previous pane could not be focused.")?;
     }
 
     Ok(Outcome::new(format!("Arranged as {}", arrangement.title()))
@@ -123,11 +127,13 @@ fn rebuild(herdr: &Herdr, tab_id: &str, plan: &Plan, before: &Layout) -> Result<
         let result = result.map_err(|err| restore(herdr, tab_id, before, err))?;
 
         if holding.is_none() {
-            holding = result
-                .created_tab
-                .map(|tab| tab.tab_id)
-                .ok_or_else(|| anyhow!("Herdr did not report the holding tab it created."))?
-                .into();
+            holding = Some(
+                result
+                    .created_tab
+                    .map(|tab| tab.tab_id)
+                    .ok_or_else(|| anyhow!("Herdr did not report the holding tab it created."))
+                    .map_err(|err| restore(herdr, tab_id, before, err))?,
+            );
         }
     }
 
@@ -158,14 +164,61 @@ fn rebuild(herdr: &Herdr, tab_id: &str, plan: &Plan, before: &Layout) -> Result<
 
 /// Put the panes back the way they were after a failed rebuild.
 ///
-/// Best-effort: the point is that no pane is left stranded in a holding tab,
-/// even if the exact proportions are lost.
+/// The original anchor is first returned to the destination and every other
+/// pane is parked again before replaying the old plan. This matters when the
+/// requested arrangement used a different anchor: merely replaying the old
+/// placements can otherwise leave that original anchor in `Rearranging…`.
 fn restore(herdr: &Herdr, tab_id: &str, before: &Layout, cause: anyhow::Error) -> anyhow::Error {
-    let Some(plan) = rebuild_plan_from(before) else {
+    let Some(shape) = Shape::from_layout(&before.root) else {
         return anyhow!("{cause}\nThe layout could not be restored automatically.");
     };
+    let plan = Plan::from_shape(&shape);
+    if plan.placements.is_empty() {
+        return cause;
+    }
 
     let mut failed = false;
+
+    // The tab is kept alive by the requested plan's anchor. Put the original
+    // anchor beside it before removing anything else.
+    match herdr.pane(&plan.anchor) {
+        Ok(pane) if pane.tab_id == tab_id => {}
+        Ok(_) => {
+            if herdr
+                .move_pane_to_tab(&plan.anchor, tab_id, None, Direction::Right, false)
+                .is_err()
+            {
+                failed = true;
+            }
+        }
+        Err(_) => failed = true,
+    };
+    if failed {
+        return anyhow!(
+            "{cause}\nThe original anchor pane could not be returned. Check the tab list."
+        );
+    }
+
+    // Recreate a known starting point: original anchor in the real tab, all
+    // other panes in one temporary tab.
+    let mut holding: Option<String> = None;
+    for pane_id in plan.pane_ids().iter().skip(1) {
+        let moved = match &holding {
+            None => herdr.move_pane_to_new_tab(pane_id, Some("Restoring…"), false),
+            Some(tab) => herdr.move_pane_to_tab(pane_id, tab, None, Direction::Right, false),
+        };
+        match moved {
+            Ok(result) if holding.is_none() => {
+                holding = result.created_tab.map(|tab| tab.tab_id);
+                if holding.is_none() {
+                    failed = true;
+                }
+            }
+            Ok(_) => {}
+            Err(_) => failed = true,
+        }
+    }
+
     for placement in &plan.placements {
         if herdr
             .move_pane_to_tab(
@@ -181,6 +234,22 @@ fn restore(herdr: &Herdr, tab_id: &str, before: &Layout, cause: anyhow::Error) -
         }
     }
 
+    let original = LayoutSpec {
+        plan,
+        shape,
+    };
+    if apply_ratios(herdr, tab_id, &original).is_err() {
+        failed = true;
+    }
+    if let Some(focused) = &before.focused_pane_id {
+        if herdr.focus_pane(focused).is_err() {
+            failed = true;
+        }
+    }
+    if verify(herdr, tab_id, &original).is_err() {
+        failed = true;
+    }
+
     if failed {
         anyhow!("{cause}\nSome panes could not be put back. Check the tab list.")
     } else {
@@ -188,15 +257,49 @@ fn restore(herdr: &Herdr, tab_id: &str, before: &Layout, cause: anyhow::Error) -
     }
 }
 
-/// Describe an existing layout as a plan, so it can be rebuilt after a failure.
-fn rebuild_plan_from(layout: &Layout) -> Option<Plan> {
-    let shape = Shape::from_layout(&layout.root)?;
-    if shape.pane_ids().len() < 2 {
-        return None;
+fn apply_spec(herdr: &Herdr, tab_id: &str, spec: &LayoutSpec, before: &Layout) -> Result<()> {
+    let current = Shape::from_layout(&before.root)
+        .ok_or_else(|| anyhow!("Herdr returned an unreadable layout tree."))?;
+    if !spec.same_topology(&current) {
+        rebuild(herdr, tab_id, &spec.plan, before)?;
     }
-    // Deriving the plan from the shape restores the original nesting exactly,
-    // not just the original set of panes.
-    Some(Plan::from_shape(&shape))
+    if let Err(err) = apply_ratios(herdr, tab_id, spec) {
+        return Err(restore(herdr, tab_id, before, err));
+    }
+    if let Err(err) = verify(herdr, tab_id, spec) {
+        return Err(restore(herdr, tab_id, before, err));
+    }
+    Ok(())
+}
+
+fn apply_ratios(herdr: &Herdr, tab_id: &str, spec: &LayoutSpec) -> Result<()> {
+    for (path, ratio) in spec.ratios() {
+        herdr
+            .set_split_ratio(tab_id, &path, ratio)
+            .with_context(|| format!("Could not set split ratio at {}.", path_label(&path)))?;
+    }
+    Ok(())
+}
+
+fn verify(herdr: &Herdr, tab_id: &str, expected: &LayoutSpec) -> Result<()> {
+    let actual = herdr
+        .layout(tab_id)
+        .with_context(|| "Could not verify the resulting layout.")?;
+    let actual = Shape::from_layout(&actual.root)
+        .ok_or_else(|| anyhow!("Herdr returned an unreadable layout after the operation."))?;
+    if !expected.matches(&actual, 0.03) {
+        return Err(anyhow!("Herdr did not apply the requested layout completely."));
+    }
+    Ok(())
+}
+
+fn path_label(path: &[bool]) -> String {
+    if path.is_empty() {
+        return "root".to_string();
+    }
+    path.iter()
+        .map(|second| if *second { '2' } else { '1' })
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -237,23 +340,13 @@ pub fn apply_layout(herdr: &Herdr, tab_id: &str, name: &str) -> Result<Outcome> 
 
     // Refuses when the counts differ, naming both, rather than guessing which
     // pane to drop or where an extra one should go.
-    let plan = template.plan(&panes)?;
-
-    let already = Shape::from_layout(&layout.root)
-        .map(|current| current == plan.simulate())
-        .unwrap_or(false);
-    if !already {
-        rebuild(herdr, tab_id, &plan, &layout)?;
-    }
-
-    // The shape is right but every split lands at 0.5, so the saved
-    // proportions are put back explicitly.
-    for (path, ratio) in template.ratios() {
-        let _ = herdr.set_split_ratio(tab_id, &path, ratio);
-    }
+    let spec = template.spec(&panes)?;
+    apply_spec(herdr, tab_id, &spec, &layout)?;
 
     if let Some(focused) = &layout.focused_pane_id {
-        let _ = herdr.focus_pane(focused);
+        herdr
+            .focus_pane(focused)
+            .with_context(|| "The layout changed, but the previous pane could not be focused.")?;
     }
 
     Ok(Outcome::new(format!("Applied the layout \"{name}\""))

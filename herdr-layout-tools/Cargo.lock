@@ -114,7 +114,6 @@ name = "herdr-layout-tools"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "crossterm",
  "herdr-plugin-kit",
  "serde",
  "serde_json",

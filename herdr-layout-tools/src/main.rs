@@ -25,7 +25,7 @@ const USAGE: &str = "\
 herdr-layout-tools — arrange the panes inside a Herdr tab
 
 Usage:
-  herdr-layout-tools launch [--pane ID] [--tab ID]
+  herdr-layout-tools launch [save|saved] [--pane ID] [--tab ID]
       Open the Layout Tools menu in a Herdr plugin pane.
 
   herdr-layout-tools ui
@@ -158,9 +158,16 @@ fn target(herdr: &Herdr, args: &Args) -> Result<(String, String)> {
 fn launch(herdr: &Herdr, args: &Args) -> Result<()> {
     let source = context::resolve_source_pane(herdr, args.pane.as_deref())?;
     let tab_id = context::resolve_source_tab(args.tab.as_deref(), &source);
+    let mode = args
+        .positional
+        .first()
+        .filter(|mode| matches!(mode.as_str(), "save" | "saved"))
+        .cloned()
+        .unwrap_or_else(|| "main".to_string());
     let env = [
         ("PM_SOURCE_PANE", source.pane_id.clone()),
         ("PM_SOURCE_TAB", tab_id),
+        ("LT_UI_MODE", mode),
     ];
     herdr.open_plugin_pane(PLUGIN_ID, UI_ENTRYPOINT, &env, true)
 }

@@ -97,11 +97,11 @@ id = "save-layout"
 title = "Save This Layout..."
 description = "この Tab の形に名前を付けて覚える"
 contexts = ["tab", "pane"]
-command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-layout-tools" launch']
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-layout-tools" launch save']
 
 [[actions]]
 id = "layouts"
 title = "Saved Layouts"
 description = "保存済みレイアウトの適用・保存・削除"
 contexts = ["global", "tab", "pane"]
-command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-layout-tools" launch']
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-layout-tools" launch saved']

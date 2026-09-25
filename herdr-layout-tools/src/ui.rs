@@ -10,7 +10,7 @@ use herdr_plugin_kit::label;
 use herdr_plugin_kit::ui::{Menu, Panel, Row, Term};
 use herdr_plugin_kit::{Outcome, Result};
 
-use crate::arrange::{Arrangement, Shape};
+use crate::arrange::{Arrangement, LayoutSpec, Shape};
 use crate::ops;
 use crate::template;
 
@@ -35,7 +35,11 @@ struct PreviewPane {
 pub fn run(herdr: &Herdr, source: Pane, tab_override: Option<&str>) -> Result<Option<Outcome>> {
     let tab_id = context::resolve_source_tab(tab_override, &source);
     let mut term = Term::open()?;
-    let result = menu(&mut term, herdr, &source, &tab_id);
+    let result = match std::env::var("LT_UI_MODE").as_deref() {
+        Ok("save") => save_current(&mut term, herdr, &tab_id),
+        Ok("saved") => saved_menu(&mut term, herdr, &source, &tab_id),
+        _ => menu(&mut term, herdr, &source, &tab_id),
+    };
 
     // Report failures inside the popup, where the user is still looking.
     match result {
@@ -48,6 +52,93 @@ pub fn run(herdr: &Herdr, source: Pane, tab_override: Option<&str>) -> Result<Op
             term.close();
             Err(err)
         }
+    }
+}
+
+fn save_current(term: &mut Term, herdr: &Herdr, tab_id: &str) -> Result<Option<Outcome>> {
+    match ask_name(term)? {
+        Some(name) => ops::save_layout(herdr, tab_id, &name).map(Some),
+        None => Ok(None),
+    }
+}
+
+/// Focused entry point for the "Saved Layouts" action. The generic menu still
+/// includes this section; this view avoids making that action open above an
+/// unrelated Equalize row.
+fn saved_menu(
+    term: &mut Term,
+    herdr: &Herdr,
+    source: &Pane,
+    tab_id: &str,
+) -> Result<Option<Outcome>> {
+    let layout = herdr.layout(tab_id)?;
+    let panes = layout.root.pane_ids();
+    let current = Shape::from_layout(&layout.root);
+    let preview_panes = preview_panes(herdr, source, &panes);
+    let (saved, warning) = template::load_reporting();
+    let mut menu = Menu::new("Saved Layouts")
+        .subtitle("保存した形をこの Tab に適用します")
+        .no_preview("この項目は Pane の配置を変えません");
+
+    if let Some(warning) = warning {
+        menu.row(Row::note(warning));
+    }
+    if saved.is_empty() {
+        menu.row(Row::note("保存済みレイアウトはありません"));
+    }
+    for (name, saved_layout) in &saved {
+        let note = if saved_layout.slots() == panes.len() {
+            saved_layout.describe()
+        } else {
+            format!(
+                "{} — needs {} here",
+                saved_layout.describe(),
+                panes.len()
+            )
+        };
+        if saved_layout.slots() != panes.len() {
+            menu.row(Row::note(name.clone()).secondary(note));
+            continue;
+        }
+        menu.item(
+            illustrated(
+                Row::item(name.clone()).secondary(note),
+                transition_panels(
+                    current.as_ref(),
+                    saved_preview(saved_layout, &panes, &source.pane_id),
+                    &preview_panes,
+                    &source.pane_id,
+                    "実行後",
+                ),
+                &preview_panes,
+                &source.pane_id,
+            ),
+            Choice::Apply(name.clone()),
+        );
+    }
+
+    menu.row(Row::separator());
+    menu.item(Row::item("Save this layout").hotkey("s"), Choice::Save);
+    if !saved.is_empty() {
+        menu.item(
+            Row::item("Delete a saved layout").hotkey("d"),
+            Choice::Forget,
+        );
+    }
+    menu.item(Row::item("Cancel").hotkey("q"), Choice::Cancel);
+
+    let Some(choice) = menu.run(term)? else {
+        return Ok(None);
+    };
+    match choice {
+        Choice::Apply(name) => ops::apply_layout(herdr, tab_id, &name).map(Some),
+        Choice::Save => save_current(term, herdr, tab_id),
+        Choice::Forget => match pick_saved(term)? {
+            Some(name) => ops::forget_layout(&name).map(Some),
+            None => Ok(None),
+        },
+        Choice::Cancel => Ok(None),
+        _ => Ok(None),
     }
 }
 
@@ -64,56 +155,55 @@ fn menu(
     let current = Shape::from_layout(&layout.root);
     let (zoom_current, zoom_preview) =
         zoom_previews(current.as_ref(), &source.pane_id, layout.zoomed);
-    let pane_legend = preview_panes
-        .iter()
-        .map(|pane| format!("{} {}", pane.number, short_label(&pane.label)))
-        .collect::<Vec<_>>()
-        .join("  ·  ");
-
     let mut menu = Menu::new("Layout Tools")
         .subtitle(format!(
-            "{} · {} pane{}{}",
+            "{} · {} pane{}",
             tab.label.as_deref().unwrap_or("this tab"),
             panes.len(),
-            if panes.len() == 1 { "" } else { "s" },
-            if pane_legend.is_empty() {
-                String::new()
-            } else {
-                format!(" · {pane_legend}")
-            }
+            if panes.len() == 1 { "" } else { "s" }
         ))
         .no_preview("この操作は Pane の配置を変えません");
 
+    let equalized = current
+        .as_ref()
+        .map(LayoutSpec::equalized_shape)
+        .map(|spec| (spec.shape, vec![source.pane_id.clone()]));
     menu.item(
-        Row::item("Equalize")
-            .hotkey("e")
-            .secondary("すべての Pane を同じ大きさに")
-            .panels(transition_panels(
+        illustrated(
+            Row::item("Equalize")
+                .hotkey("e")
+                .secondary("すべての Pane を同じ大きさに"),
+            transition_panels(
                 current.as_ref(),
-                current
-                    .clone()
-                    .map(|shape| (shape, vec![source.pane_id.clone()])),
+                equalized,
                 &preview_panes,
                 &source.pane_id,
                 "均等化後",
-            )),
+            ),
+            &preview_panes,
+            &source.pane_id,
+        ),
         Choice::Equalize,
     );
     menu.item(
-        Row::item("Zoom current pane")
-            .hotkey("z")
-            .secondary(if layout.zoomed {
-                "分割表示へ戻す".to_string()
-            } else {
-                label::pane_compact(source)
-            })
-            .panels(transition_panels(
+        illustrated(
+            Row::item("Zoom current pane")
+                .hotkey("z")
+                .secondary(if layout.zoomed {
+                    "分割表示へ戻す".to_string()
+                } else {
+                    label::pane_compact(source)
+                }),
+            transition_panels(
                 zoom_current.as_ref(),
                 zoom_preview,
                 &preview_panes,
                 &source.pane_id,
                 "実行後",
-            )),
+            ),
+            &preview_panes,
+            &source.pane_id,
+        ),
         Choice::Zoom,
     );
 
@@ -124,8 +214,8 @@ fn menu(
         // a read-out of the current layout.
         let applied = current.as_ref().is_some_and(|shape| {
             arrangement
-                .plan(&panes, Some(&source.pane_id))
-                .is_some_and(|plan| plan.simulate() == *shape)
+                .spec(&panes, Some(&source.pane_id))
+                .is_some_and(|spec| spec.matches(shape, 0.03))
         });
         let note = if applied {
             "current".to_string()
@@ -133,21 +223,28 @@ fn menu(
             arrangement.description().to_string()
         };
         menu.item(
-            Row::item(arrangement.title())
-                .hotkey(arrangement.hotkey())
-                .secondary(note)
-                .panels(transition_panels(
+            illustrated(
+                Row::item(arrangement.title())
+                    .hotkey(arrangement.hotkey())
+                    .secondary(note),
+                transition_panels(
                     current.as_ref(),
                     arrangement_preview(arrangement, &panes, &source.pane_id),
                     &preview_panes,
                     &source.pane_id,
                     "実行後",
-                )),
+                ),
+                &preview_panes,
+                &source.pane_id,
+            ),
             Choice::Arrange(arrangement),
         );
     }
 
-    let saved = template::load();
+    let (saved, saved_warning) = template::load_reporting();
+    if let Some(warning) = saved_warning {
+        menu.row(Row::note(warning));
+    }
     if !saved.is_empty() {
         menu.row(Row::separator());
         menu.row(Row::header("Saved"));
@@ -159,16 +256,23 @@ fn menu(
             } else {
                 format!("{} — needs {} here", layout.describe(), panes.len())
             };
+            if layout.slots() != panes.len() {
+                menu.row(Row::note(name.clone()).secondary(note));
+                continue;
+            }
             menu.item(
-                Row::item(name.clone())
-                    .secondary(note)
-                    .panels(transition_panels(
+                illustrated(
+                    Row::item(name.clone()).secondary(note),
+                    transition_panels(
                         current.as_ref(),
                         saved_preview(layout, &panes, &source.pane_id),
                         &preview_panes,
                         &source.pane_id,
                         "実行後",
-                    )),
+                    ),
+                    &preview_panes,
+                    &source.pane_id,
+                ),
                 Choice::Apply(name.clone()),
             );
         }
@@ -176,15 +280,19 @@ fn menu(
 
     menu.row(Row::separator());
     menu.item(
-        Row::item("Save this layout")
-            .hotkey("s")
-            .secondary("今の形に名前を付けて覚える")
-            .panels(current_panel(
+        illustrated(
+            Row::item("Save this layout")
+                .hotkey("s")
+                .secondary("今の形に名前を付けて覚える"),
+            current_panel(
                 current.as_ref(),
                 &preview_panes,
                 &source.pane_id,
                 "保存する形",
-            )),
+            ),
+            &preview_panes,
+            &source.pane_id,
+        ),
         Choice::Save,
     );
     if !saved.is_empty() {
@@ -326,19 +434,37 @@ fn short_label(label: &str) -> String {
     text
 }
 
+fn illustrated(
+    row: Row,
+    panels: Vec<Panel>,
+    panes: &[PreviewPane],
+    current_pane: &str,
+) -> Row {
+    let legend = panes
+        .iter()
+        .map(|pane| {
+            let marker = if pane.id == current_pane {
+                format!("{} ", herdr_plugin_kit::layout::HIGHLIGHT)
+            } else {
+                "  ".to_string()
+            };
+            format!("{marker}{}: {}", pane.number, short_label(&pane.label))
+        })
+        .collect();
+    row.panels(panels).legend(legend)
+}
+
 /// Diagram the target arrangement before any pane is moved.
 ///
-/// `Plan::simulate` is also the shape that `ops::rebuild` produces, so the
-/// picker cannot drift into showing a decorative diagram that differs from
-/// the shortcuts' actual result.
+/// The complete spec is also what `ops::arrange` applies, including ratios.
 fn arrangement_preview(
     arrangement: Arrangement,
     panes: &[String],
     current_pane: &str,
 ) -> Option<(Shape, Vec<String>)> {
     arrangement
-        .plan(panes, Some(current_pane))
-        .map(|plan| (plan.simulate(), vec![current_pane.to_string()]))
+        .spec(panes, Some(current_pane))
+        .map(|spec| (spec.shape, vec![current_pane.to_string()]))
 }
 
 /// Diagram a saved layout with this tab's panes filled into its slots.
@@ -351,9 +477,9 @@ fn saved_preview(
     current_pane: &str,
 ) -> Option<(Shape, Vec<String>)> {
     layout
-        .plan(panes)
+        .spec(panes)
         .ok()
-        .map(|plan| (plan.simulate(), vec![current_pane.to_string()]))
+        .map(|spec| (spec.shape, vec![current_pane.to_string()]))
 }
 
 /// Ask what to call the layout being saved.
@@ -458,6 +584,38 @@ mod preview_tests {
         assert_eq!(panels[0].labels, panels[1].labels);
         assert_eq!(panels[0].marked, vec!["p2".to_string()]);
         assert_eq!(panels[1].marked, vec!["p2".to_string()]);
+    }
+
+    #[test]
+    fn main_preview_shows_the_same_half_width_the_operation_applies() {
+        let ids = vec![
+            "p1".to_string(),
+            "p2".to_string(),
+            "p3".to_string(),
+        ];
+        let (shape, _) = arrangement_preview(Arrangement::MainLeft, &ids, "p2").unwrap();
+        let Shape::Split { ratio, second, .. } = shape else {
+            panic!("main preview must have a root split");
+        };
+        assert_eq!(ratio, 0.5);
+        let Shape::Split {
+            ratio: secondary_ratio,
+            ..
+        } = *second
+        else {
+            panic!("secondary panes must be split");
+        };
+        assert_eq!(secondary_ratio, 0.5);
+    }
+
+    #[test]
+    fn equalize_preview_changes_a_nested_chains_visible_ratio() {
+        let before = current();
+        let after = LayoutSpec::equalized_shape(&before);
+        let Shape::Split { ratio, .. } = after.shape else {
+            panic!("preview must have a root split");
+        };
+        assert!((ratio - 1.0 / 3.0).abs() < f32::EPSILON);
     }
 
     #[test]

@@ -32,6 +32,10 @@ impl LayoutSpec {
         spec
     }
 
+    pub fn equalized_shape(shape: &Shape) -> Self {
+        Self::equalized(Plan::from_shape(shape))
+    }
+
     /// Apply explicit split ratios, addressed from the root.
     pub fn with_ratios(plan: Plan, ratios: &[(Vec<bool>, f32)]) -> Option<Self> {
         let mut spec = Self::from_plan(plan);
@@ -218,6 +222,7 @@ impl Arrangement {
     ///
     /// `panes` is in current layout order; the relative order of the others is
     /// preserved so a rearrangement does not shuffle unrelated panes.
+    #[cfg(test)]
     pub fn plan(self, panes: &[String], main: Option<&str>) -> Option<Plan> {
         self.spec(panes, main).map(|spec| spec.plan)
     }
@@ -539,13 +544,27 @@ mod tests {
     #[test]
     fn main_keeps_half_the_tab_and_equalizes_only_the_secondary_side() {
         let spec = Arrangement::MainLeft.spec(&ids(4), Some("p3")).unwrap();
-        assert_eq!(spec.ratios(), vec![(vec![], 0.5), (vec![true], 1.0 / 3.0), (vec![true, true], 0.5)]);
+        assert_eq!(
+            spec.ratios(),
+            vec![
+                (vec![], 0.5),
+                (vec![true], 1.0 / 3.0),
+                (vec![true, true], 0.5)
+            ]
+        );
     }
 
     #[test]
     fn columns_assign_equal_width_to_every_pane() {
         let spec = Arrangement::Columns.spec(&ids(4), None).unwrap();
-        assert_eq!(spec.ratios(), vec![(vec![], 0.25), (vec![true], 1.0 / 3.0), (vec![true, true], 0.5)]);
+        assert_eq!(
+            spec.ratios(),
+            vec![
+                (vec![], 0.25),
+                (vec![true], 1.0 / 3.0),
+                (vec![true, true], 0.5)
+            ]
+        );
     }
 
     #[test]
