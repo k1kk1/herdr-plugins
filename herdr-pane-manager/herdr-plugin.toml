@@ -91,7 +91,7 @@ command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manag
 [[actions]]
 id = "gather-active"
 title = "Gather Active Agents"
-description = "対応が必要な Agent を Active Agents Tab へ集める"
+description = "全 Workspace から更新の新しい Agent を既定数まで1つの Tab へ集める"
 contexts = ["global", "pane", "tab"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" gather']
 
@@ -111,19 +111,19 @@ command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manag
 
 [[actions]]
 id = "gather-active-2"
-title = "Gather Active Agents (2 per tab)"
+title = "Gather 2 Active Agent Panes"
 contexts = ["global"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" gather 2']
 
 [[actions]]
 id = "gather-active-3"
-title = "Gather Active Agents (3 per tab)"
+title = "Gather 3 Active Agent Panes"
 contexts = ["global"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" gather 3']
 
 [[actions]]
 id = "gather-active-4"
-title = "Gather Active Agents (4 per tab)"
+title = "Gather 4 Active Agent Panes"
 contexts = ["global"]
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/target/release/herdr-pane-manager" gather 4']
 

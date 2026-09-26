@@ -309,9 +309,9 @@ cp config.example.toml "$(herdr plugin config-dir pane-manager)/config.toml"
 | キー | 既定値 | 意味 |
 |---|---|---|
 | `statuses` | `["blocked", "done", "working", "idle"]` | 集約対象の Agent 状態。`idle` は「入力待ち」なので既定で含む |
-| `max_panes_per_tab` | `4` | 1 Tab あたりの Pane 数 (2 / 3 / 4) |
-| `scope` | `"workspace"` | `workspace` / `all` |
-| `focus_highest_priority` | `true` | Gather 後に最優先 Agent へ Focus |
+| `max_panes_per_tab` | `2` | 1つの Tab に集める Pane 数の上限 (2 / 3 / 4) |
+| `scope` | `"all"` | `all` / `workspace`（現在の Workspace のみ） |
+| `focus_highest_priority` | `true` | Gather 後に選択した中で最も最近更新された Agent へ Focus |
 | `agents` | `[]` | Agent 種別で絞る (空 = すべて) |
 | `tab_label` | `"Active Agents"` | 生成する Tab の名前 |
 
@@ -382,25 +382,30 @@ Move / Swap の可否を制限しません (spec §13)。
 ## Active Agent Gather (追加仕様 §1–§19)
 
 複数の Agent を走らせていると、`blocked` (入力待ち) の Pane が別 Tab に埋もれて気づけません。
-Gather は対応が必要な Agent Pane だけを `Active Agents` Tab へ集めます。
+Gather は全 Workspace の Agent Pane から、状態変化が新しい順に指定数までを `Active Agents` の1つの Tab へ集めます。既定では `idle` や `done` も候補です。Agent が検出されない Pane (shell / dev server / log) は候補に入りません。
 
 ```
-prefix+m → g → 4        # 4 Pane / Tab で集約 (追加仕様 §10)
-prefix+m → g → w / a    # Scope を Current Workspace / All Workspaces に
-prefix+m → r            # 全部を元の場所へ戻す
+prefix+m → g                   # 既定の2 Paneを1つの Tab へ集約
+prefix+m → Shift+G             # Pane 数と Scope の選択画面を開く
+prefix+m → Gather の行で Shift+Enter  # 同じ選択画面を開く
+prefix+m → Shift+G → 3         # 3 Paneを1つの Tab へ集約
+prefix+m → Shift+G → w / a     # Scope を Current Workspace / All Workspaces に
+prefix+m → r                   # 全部を元の場所へ戻す
 ```
 
-**優先度順** — `blocked` → `done` → `working` の順に並べ、同一状態内では状態変化が新しいものが先です (§3)。
-`idle` / `unknown` と、Agent が検出されていない Pane (shell / dev server / log) は対象外です (§2)。
+Gather は `default_action` の設定にかかわらず、Enter または `g` で既定数を実行し、
+Shift+Enter または `Shift+G` で Pane 数と Scope の選択画面を開きます。
 
-**レイアウト** (§6) — 集約先 Tab は Pane 数で決まった形を取り、最優先の Agent が先頭に入ります。
+**選択順** — 状態にかかわらず、状態変化が新しい Agent を先に選びます。同じ更新順なら状態優先度を使います。既定の候補状態は `blocked` / `done` / `working` / `idle` です。Unknown は Agent が検出されていない Pane を表すため対象外です。
+
+**レイアウト** (§6) — 選択した Pane 数で1つの Tab の形が決まり、最も最近更新された Agent が先頭に入ります。
 
 ```
 2 →  a1 | a2          3 →  a1 | a2        4 →  a1 | a2
                            a1 | a3             a3 | a4
 ```
 
-5つ以上は `Active Agents 1` / `Active Agents 2` … と Tab が増えます (§5)。
+指定数より候補が多い場合は更新の新しい Pane だけを集め、残りは元の場所に残します。候補が指定数より少なければ、あるものをすべて集めます。
 
 **Restore** (§11, §12) — Gather は Pane を物理的に動かすので、動かす**前**に元の位置
 (Workspace / Tab / Tab 名 / Tab の並び順 / 隣接 Pane と方向 / 復元順) を state ディレクトリの

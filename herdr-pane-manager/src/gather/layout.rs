@@ -1,9 +1,9 @@
 //! Standard Gather layouts (addendum §4, §5, §6).
 //!
 //! A Gather tab holds two, three or four agent panes in a fixed arrangement,
-//! filled in priority order. These are deliberately not the Layout Tools
-//! arrangements: Gather always puts the most urgent agent in the largest or
-//! first slot, which is a different rule from "make a balanced grid".
+//! filled in recent-update order. These are deliberately not the Layout Tools
+//! arrangements: Gather always puts the most recently changed agent in the
+//! largest or first slot, which is a different rule from "make a balanced grid".
 
 use herdr_plugin_kit::layout::{Placement, Plan, Side};
 
@@ -12,7 +12,7 @@ use herdr_plugin_kit::layout::{Placement, Plan, Side};
 pub struct PanesPerTab(u8);
 
 impl PanesPerTab {
-    pub const DEFAULT: PanesPerTab = PanesPerTab(4);
+    pub const DEFAULT: PanesPerTab = PanesPerTab(2);
 
     /// Only 2, 3 and 4 have a defined layout.
     pub fn new(value: u8) -> Option<Self> {
@@ -32,10 +32,11 @@ impl Default for PanesPerTab {
     }
 }
 
-/// Split `panes` into per-tab groups, keeping priority order.
+/// Split ordered pane IDs into groups no larger than the chosen count.
 ///
-/// The last group takes the remainder, so seven agents at four per tab become
-/// four and three rather than four, two and one.
+/// Gather truncates candidates before calling this helper, so a normal run
+/// produces one group. The generic grouping behavior remains useful for old
+/// Gather sessions and layout calculations.
 pub fn chunk(panes: &[String], per_tab: PanesPerTab) -> Vec<Vec<String>> {
     panes
         .chunks(per_tab.get())
@@ -43,7 +44,7 @@ pub fn chunk(panes: &[String], per_tab: PanesPerTab) -> Vec<Vec<String>> {
         .collect()
 }
 
-/// The arrangement for one Gather tab, in priority order.
+/// The arrangement for one Gather tab, in the supplied selection order.
 ///
 /// * 2 — side by side.
 /// * 3 — the top agent down the left, the other two stacked on the right.
@@ -101,7 +102,7 @@ mod tests {
         assert_eq!(PanesPerTab::new(2).map(PanesPerTab::get), Some(2));
         assert_eq!(PanesPerTab::new(1), None);
         assert_eq!(PanesPerTab::new(5), None);
-        assert_eq!(PanesPerTab::default().get(), 4);
+        assert_eq!(PanesPerTab::default().get(), 2);
     }
 
     #[test]

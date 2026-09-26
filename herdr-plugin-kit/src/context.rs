@@ -9,7 +9,8 @@ use serde_json::{json, Value};
 
 use crate::herdr::{Herdr, Pane};
 
-/// The plugin's own pane, when it is running inside one. Never a candidate.
+/// Pane ID inherited from the current environment. In a plugin UI this can
+/// be the plugin pane; in a CLI action it can be the invoking user's pane.
 pub fn self_pane_id() -> Option<String> {
     non_empty_env("HERDR_PANE_ID")
 }
@@ -85,18 +86,29 @@ impl InvocationContext {
 ///    stole focus
 /// 3. the plugin invocation context, i.e. the pane that was right-clicked
 /// 4. `HERDR_ACTIVE_PANE_ID`, set for `[[keys.command]]` bindings
-/// 5. whichever pane Herdr currently reports as focused
+/// 5. `HERDR_PANE_ID`, inherited when run in a user's terminal
+/// 6. whichever pane Herdr currently reports as focused
 ///
-/// The plugin's own UI pane is excluded at every step.
+/// A plugin UI pane is excluded when the invocation context names a different
+/// source pane. An action can inherit the source pane as `HERDR_PANE_ID`, so
+/// that value alone cannot identify the plugin's own pane.
 pub fn resolve_source_pane(herdr: &Herdr, explicit: Option<&str>) -> Result<Pane> {
-    let own = self_pane_id();
+    let invocation = InvocationContext::from_env();
+    let inherited_pane = self_pane_id();
+    let own = inherited_pane.clone().filter(|id| {
+        invocation
+            .focused_pane_id
+            .as_deref()
+            .is_some_and(|focused| focused != id)
+    });
 
     let candidates: Vec<String> = explicit
         .map(str::to_string)
         .into_iter()
         .chain(non_empty_env("PM_SOURCE_PANE"))
-        .chain(InvocationContext::from_env().focused_pane_id)
+        .chain(invocation.focused_pane_id)
         .chain(non_empty_env("HERDR_ACTIVE_PANE_ID"))
+        .chain(inherited_pane)
         .filter(|id| Some(id) != own.as_ref())
         .collect();
 

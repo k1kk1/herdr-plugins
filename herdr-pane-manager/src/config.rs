@@ -128,11 +128,12 @@ pub struct GatherConfig {
     /// while they wait for you. `unknown` is left out because it is what a
     /// pane with no agent in it reports, and those are never candidates.
     pub statuses: Vec<AgentStatus>,
-    /// Agents per Gather tab: 2, 3 or 4.
+    /// Maximum agents selected for the single Gather tab: 2, 3 or 4.
+    /// The serialized key is retained for compatibility.
     pub max_panes_per_tab: u8,
-    /// How far to look: `"workspace"` or `"all"`.
+    /// How far to look: `"all"` or `"workspace"`.
     pub scope: String,
-    /// Focus the most urgent agent once the Gather finishes.
+    /// Focus the most recently changed selected agent once Gather finishes.
     pub focus_highest_priority: bool,
     /// Restrict to certain agent kinds, e.g. `["codex", "claude"]`.
     /// Empty means every kind.
@@ -145,8 +146,8 @@ impl Default for GatherConfig {
     fn default() -> Self {
         Self {
             statuses: crate::gather::select::default_statuses(),
-            max_panes_per_tab: 4,
-            scope: "workspace".into(),
+            max_panes_per_tab: 2,
+            scope: "all".into(),
             focus_highest_priority: true,
             agents: Vec::new(),
             tab_label: "Active Agents".into(),
@@ -155,14 +156,14 @@ impl Default for GatherConfig {
 }
 
 impl GatherConfig {
-    /// Configured group size, falling back to 4 for an unsupported number.
+    /// Configured pane count, falling back to 2 for an unsupported number.
     pub fn per_tab(&self) -> crate::gather::layout::PanesPerTab {
         crate::gather::layout::PanesPerTab::new(self.max_panes_per_tab).unwrap_or_default()
     }
 
     pub fn scope(&self) -> crate::gather::select::Scope {
         crate::gather::select::Scope::parse(&self.scope)
-            .unwrap_or(crate::gather::select::Scope::CurrentWorkspace)
+            .unwrap_or(crate::gather::select::Scope::AllWorkspaces)
     }
 
     /// The configured statuses, for messages: `blocked, done, working, idle`.
@@ -306,8 +307,8 @@ mod tests {
     fn gather_defaults_match_the_spec() {
         let gather = Config::default().gather;
         assert_eq!(gather.statuses.len(), 4);
-        assert_eq!(gather.per_tab().get(), 4);
-        assert_eq!(gather.scope(), crate::gather::select::Scope::CurrentWorkspace);
+        assert_eq!(gather.per_tab().get(), 2);
+        assert_eq!(gather.scope(), crate::gather::select::Scope::AllWorkspaces);
         assert!(gather.focus_highest_priority);
         assert!(gather.agents.is_empty());
         assert_eq!(gather.tab_label, "Active Agents");
@@ -338,9 +339,9 @@ mod tests {
     }
 
     #[test]
-    fn an_unsupported_group_size_falls_back_to_four() {
+    fn an_unsupported_pane_count_falls_back_to_two() {
         let config = parse("[pane-manager]\n[pane-manager.gather]\nmax_panes_per_tab = 7\n");
-        assert_eq!(config.gather.per_tab().get(), 4);
+        assert_eq!(config.gather.per_tab().get(), 2);
     }
 
     #[test]

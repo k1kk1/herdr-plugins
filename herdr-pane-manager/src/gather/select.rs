@@ -35,17 +35,15 @@ impl Scope {
     }
 }
 
-/// Agents worth gathering, most urgent first.
+/// Agents eligible for gathering, most recently changed first.
 ///
-/// Selection is by status (`blocked` / `done` / `working` by default), and
-/// optionally by agent kind. Panes Herdr has not detected an agent in — shells,
-/// dev servers, log tails — never appear, because they are not in `agent.list`
-/// at all.
+/// Selection is by configured status (all detected agent states except
+/// `unknown` by default), and optionally by agent kind. Panes Herdr has not
+/// detected an agent in — shells, dev servers, log tails — never appear,
+/// because they are not in `agent.list` at all.
 ///
-/// Order is `blocked` → `done` → `working` → anything else, and within a status
-/// the most recently changed first. `state_change_seq` makes that total and
-/// stable; `pane_id` breaks the remaining ties so two runs over unchanged state
-/// produce the same layout.
+/// `state_change_seq` orders recent updates across statuses. Status priority
+/// and `pane_id` break ties so unchanged state produces a stable layout.
 pub fn select(agents: &[Agent], config: &GatherConfig, workspace: Option<&str>) -> Vec<Agent> {
     let mut chosen: Vec<Agent> = agents
         .iter()
@@ -59,10 +57,9 @@ pub fn select(agents: &[Agent], config: &GatherConfig, workspace: Option<&str>) 
         .collect();
 
     chosen.sort_by(|a, b| {
-        a.agent_status
-            .priority()
-            .cmp(&b.agent_status.priority())
-            .then(b.state_change_seq.cmp(&a.state_change_seq))
+        b.state_change_seq
+            .cmp(&a.state_change_seq)
+            .then(a.agent_status.priority().cmp(&b.agent_status.priority()))
             .then(a.pane_id.cmp(&b.pane_id))
     });
     chosen
@@ -145,16 +142,15 @@ mod tests {
     }
 
     #[test]
-    fn blocked_comes_first_then_done_then_working_then_idle() {
+    fn most_recent_state_change_comes_first_across_statuses() {
         let got = select(&sample(), &GatherConfig::default(), None);
-        // p5 before p1: same status, higher state_change_seq is more recent.
-        assert_eq!(ids(&got), ["p3", "p4", "p5", "p1", "p2"]);
+        assert_eq!(ids(&got), ["p5", "p4", "p3", "p2", "p1"]);
     }
 
     #[test]
     fn scope_limits_the_search_to_one_workspace() {
         let got = select(&sample(), &GatherConfig::default(), Some("w1"));
-        assert_eq!(ids(&got), ["p3", "p5", "p1", "p2"]);
+        assert_eq!(ids(&got), ["p5", "p3", "p2", "p1"]);
     }
 
     #[test]
@@ -163,7 +159,7 @@ mod tests {
             agents: vec!["codex".into()],
             ..GatherConfig::default()
         };
-        assert_eq!(ids(&select(&sample(), &config, None)), ["p3", "p5"]);
+        assert_eq!(ids(&select(&sample(), &config, None)), ["p5", "p3"]);
     }
 
     #[test]
@@ -195,7 +191,7 @@ mod tests {
     #[test]
     fn focus_goes_to_the_most_urgent_agent() {
         let got = select(&sample(), &GatherConfig::default(), None);
-        assert_eq!(highest_priority(&got).unwrap().pane_id, "p3");
+        assert_eq!(highest_priority(&got).unwrap().pane_id, "p5");
         assert!(highest_priority(&[]).is_none());
     }
 

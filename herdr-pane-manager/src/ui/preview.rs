@@ -166,25 +166,14 @@ pub(super) fn gathered_shape(panes: usize) -> Option<(Shape, Vec<String>)> {
     Some((plan.simulate(), ids))
 }
 
-/// How many tabs a Gather of `panes` agents would fill, for the caption.
-pub(super) fn gather_caption(panes: usize, config: &Config, label: &str) -> String {
-    let per_tab = config.gather.per_tab().get();
-    let tabs = panes.div_ceil(per_tab.max(1));
-    if tabs > 1 {
-        format!("{label} ×{tabs}")
-    } else {
-        label.to_string()
-    }
-}
-
 /// How many agents a Gather would collect, counted from the snapshot the menu
 /// already holds.
 ///
 /// An estimate: `scope = "all"` reaches workspaces this snapshot never read.
 /// It costs nothing — the panes are already here, and the status and kind
-/// filters are the same ones `gather::select` applies — and drawing a full
-/// four-pane tab when the reader can see two agents on screen was worse than
-/// being approximately right.
+/// filters are the same ones `gather::select` applies. Drawing a
+/// configured-size tab when only a few candidates are visible was
+/// worse than being approximately right.
 pub(super) fn gatherable_here(snapshot: &Snapshot, config: &Config) -> Vec<String> {
     let gather = &config.gather;
     let mut agents: Vec<&Pane> = snapshot
@@ -199,14 +188,13 @@ pub(super) fn gatherable_here(snapshot: &Snapshot, config: &Config) -> Vec<Strin
         })
         .collect();
 
-    // Only the agents a Gather would really take. Padding the list out with
-    // idle ones when nothing is busy draws a tab Gather will not make; the row
-    // beside the picture says how many there are, which is the honest way to
-    // explain a single box while two agents are running.
+    // Keep only statuses allowed by the current Gather settings.
+    // This fallback uses pane.list, which has no state-change sequence; the
+    // normal agent.list path supplies the exact recent-update order.
     agents.retain(|pane| gather.statuses.iter().any(|s| *s == pane.agent_status));
 
-    // Priority order, the same rule `gather::select` sorts by, so the box a
-    // name lands in is the box that pane will land in.
+    // This snapshot fallback lacks the state-change sequence. Use status
+    // priority and pane ID; agent.list supplies the exact update order.
     agents.sort_by(|a, b| {
         a.agent_status
             .priority()
@@ -216,7 +204,7 @@ pub(super) fn gatherable_here(snapshot: &Snapshot, config: &Config) -> Vec<Strin
     agents.iter().map(|pane| pane_number(pane)).collect()
 }
 
-/// The first Gather tab at the chosen capacity, filled with current targets.
+/// The single Gather tab, filled with the selected current targets.
 pub(super) fn gather_size_panels(size: usize, names: &[String], config: &Config) -> Vec<Panel> {
     let shown = if names.is_empty() { size } else { size.min(names.len()) };
     let Some((shape, ids)) = gathered_shape(shown) else {
@@ -225,7 +213,7 @@ pub(super) fn gather_size_panels(size: usize, names: &[String], config: &Config)
     vec![Panel::new(config.gather.tab_label.clone(), shape).labeling(named(&ids, names))]
 }
 
-/// Put the agents' own pane names into the boxes, in priority order.
+/// Put the selected agents' pane names into the boxes, in update order.
 ///
 /// A Gather tab drawn as empty rectangles says how many panes there will be
 /// and nothing about which. The names are the only part that answers "is that
@@ -239,15 +227,9 @@ pub(super) fn named(slots: &[String], names: &[String]) -> Vec<(String, String)>
         .collect()
 }
 
-/// Where the agents are now: the tab the reader is in, with the ones it holds
-/// filled, and the sheet behind naming another tab they come from.
-///
-/// A Gather reaches across tabs, so no single diagram is the whole truth. The
-/// front sheet is a real tab drawn from its real layout; the sheet behind says
-/// there are more, and names one of them. Nothing here is invented — when the
-/// agents all sit in one tab there is no second sheet.
-fn scattered_now(snapshot: &Snapshot, config: &Config) -> Option<Panel> {
-    let wanted = gatherable_here(snapshot, config);
+/// Where the selected agents are now, before they are moved.
+fn scattered_now(snapshot: &Snapshot, selected: &[String]) -> Option<Panel> {
+    let wanted = selected.to_vec();
     if wanted.is_empty() {
         return None;
     }
@@ -303,42 +285,33 @@ pub(super) fn gather_panels(
     snapshot: Option<&Snapshot>,
     config: &Config,
 ) -> Vec<Panel> {
-    // Only the first tab is drawn; the caption carries the rest.
+    // Gather takes at most the configured number and creates one tab.
     let per_tab = config.gather.per_tab().get();
-    // The result is determined by current candidates. The previous session's
-    // count can differ when Gather is refreshed and must never size this view.
-    let panes = if names.is_empty() { per_tab } else { names.len() };
-    let Some((shape, ids)) = gathered_shape(panes.min(per_tab)) else {
+    // When candidates are known, preview only the panes that will move.
+    let panes = if names.is_empty() {
+        per_tab
+    } else {
+        names.len().min(per_tab)
+    };
+    let selected_names = &names[..names.len().min(panes)];
+    let Some((shape, ids)) = gathered_shape(panes) else {
         return Vec::new();
     };
-    // One panel: the tab that will exist afterwards, under its real name. The
-    // panes come from several tabs at once, so the left-hand side has no one
-    // name to carry.
-    // Nothing is filled: the fill means "this is where you end up", and a
-    // Gather collects agents wherever they are — the pane the reader is
-    // sitting in is usually not one of them.
-    // More than one tab's worth, so the picture is two sheets — and now that
-    // the names live in the frames, both can say what they are. One tab stays
-    // one sheet: stacking it would promise a second tab that never appears.
-    let tabs = panes.div_ceil(per_tab.max(1));
-    // The slot the reader's own pane lands in, when it is one of the agents.
+    // One panel: the destination tab under its real name. The selected
+    // panes can come from several source tabs.
+    // Mark the reader's pane only if it is among the selected agents.
     let mine = snapshot
         .map(|snapshot| pane_number(&snapshot.source))
-        .and_then(|mine| names.iter().position(|name| *name == mine))
+        .and_then(|mine| selected_names.iter().position(|name| *name == mine))
         .and_then(|index| ids.get(index).cloned());
-    let panel = Panel::new(gather_caption(panes, config, &config.gather.tab_label), shape)
-        .labeling(named(&ids, names))
+    let after = Panel::new(config.gather.tab_label.clone(), shape)
+        .labeling(named(&ids, selected_names))
         .marking(mine.into_iter().collect());
-    let after = if tabs > 1 {
-        panel.behind(config.gather.tab_label.clone())
-    } else {
-        panel
-    };
 
     // Before and after, like every other operation. The "before" is only
     // available when the agents can be found in this snapshot; with the scope
     // set past it, the result alone is all that can honestly be drawn.
-    match snapshot.and_then(|snapshot| scattered_now(snapshot, config)) {
+    match snapshot.and_then(|snapshot| scattered_now(snapshot, selected_names)) {
         Some(before) => vec![before, after],
         None => vec![after],
     }
@@ -839,14 +812,6 @@ mod preview_tests {
     }
 
     #[test]
-    fn the_caption_counts_tabs_only_when_there_is_more_than_one() {
-        let mut config = Config::default();
-        config.gather.max_panes_per_tab = 2;
-        assert_eq!(gather_caption(2, &config, "A"), "A");
-        assert_eq!(gather_caption(5, &config, "A"), "A ×3");
-    }
-
-    #[test]
     fn an_uncounted_gather_still_draws_the_shape_it_would_make() {
         // Opening this menu deliberately does not count agents — that walks
         // every workspace. A picture of the arrangement costs nothing and is
@@ -860,15 +825,17 @@ mod preview_tests {
     }
 
     #[test]
-    fn a_gather_of_two_agents_is_drawn_as_two_panes() {
-        // Four boxes when two agents are running is a picture of something
-        // that will not happen. The count comes from the panes on screen.
+    fn a_gather_preview_uses_only_the_selected_number_of_agents() {
         let config = Config::default();
-        let panels = gather_panels(&["p1".to_string(), "p2".to_string()], None, &config);
+        let names = ["p1".to_string(), "p2".to_string(), "p3".to_string()];
+        let panels = gather_panels(&names, None, &config);
+        assert_eq!(panels.len(), 1);
         assert_eq!(panes_in(&panels[0]), 2);
-        // Three keep the top agent's column full height, with the other two
-        // stacked beside it.
-        let panels = gather_panels(&["p1".to_string(), "p2".to_string(), "p3".to_string()], None, &config);
+        assert_eq!(panels[0].caption, config.gather.tab_label);
+
+        let mut config = Config::default();
+        config.gather.max_panes_per_tab = 3;
+        let panels = gather_panels(&names, None, &config);
         assert_eq!(panes_in(&panels[0]), 3);
         assert_eq!(signature(3), {
             let id = |n: usize| format!("{ARRIVING}{n}");
@@ -877,14 +844,14 @@ mod preview_tests {
     }
 
     #[test]
-    fn a_gather_never_draws_more_than_one_tab_holds() {
+    fn only_the_selected_agents_are_previewed_in_one_tab() {
         let mut config = Config::default();
         config.gather.max_panes_per_tab = 2;
-        // Six agents fill three tabs; the picture shows the first one, and
-        // the caption carries the rest.
-        let panels = gather_panels(&["p1".to_string(), "p2".to_string(), "p3".to_string(), "p4".to_string(), "p5".to_string(), "p6".to_string()], None, &config);
+        let names = ["p1".to_string(), "p2".to_string(), "p3".to_string(), "p4".to_string(), "p5".to_string(), "p6".to_string()];
+        let panels = gather_panels(&names, None, &config);
+        assert_eq!(panels.len(), 1);
         assert_eq!(panes_in(&panels[0]), 2);
-        assert_eq!(panels[0].caption, format!("{} ×3", config.gather.tab_label));
+        assert_eq!(panels[0].caption, config.gather.tab_label);
     }
 
     fn tab_entry(tab_id: &str, label: Option<&str>, panes: &[&str], shape: Option<Shape>) -> TabEntry {

@@ -48,36 +48,36 @@ confirm_merge = false
 show_ids = false
 
 # --- Active Agent Gather ----------------------------------------------------
-# Collecting the agents that need attention into tabs of their own.
+# Collecting recently changed eligible agents into one tab.
 #
 # Gather only ever runs because you asked it to — from the overlay (g), from a
 # plugin action, or from the CLI. Nothing here makes panes move on their own.
 
 [pane-manager.gather]
-# Agent states worth collecting, most urgent first.
+# Agent states worth collecting. The list includes all detected states by default.
 #   "blocked" | "done" | "working" | "idle" | "unknown"
 # Panes Herdr has not detected an agent in are never candidates.
 statuses = ["blocked", "done", "working", "idle"]
 
-# Agents per Gather tab: 2, 3 or 4.
+# Maximum agents selected into one Gather tab: 2, 3 or 4.
+# The setting name is retained for compatibility.
 #   2 → side by side
 #   3 → the top agent down the left, the other two stacked on the right
 #   4 → a 2x2 grid filled left to right, top to bottom
-# More agents than this means more Gather tabs, numbered in priority order.
-max_panes_per_tab = 4
+# Candidates beyond this count stay in their current tabs.
+max_panes_per_tab = 2
 
-# How far to look: "workspace" (the focused one) or "all".
-scope = "workspace"
+# How far to look: "all" (every workspace) or "workspace" (the focused one).
+scope = "all"
 
-# Focus the most urgent agent once the Gather finishes.
+# Focus the most recently changed selected agent after Gather.
 focus_highest_priority = true
 
 # Restrict to certain agent kinds, e.g. ["codex", "claude"].
 # Empty means every kind.
 agents = []
 
-# Name of the tabs Gather creates. When one tab is enough it is used as
-# written; when more are needed they are numbered "Active Agents 1", "2", ...
+# Name of the single tab Gather creates.
 tab_label = "Active Agents"
 
 # 修飾キーなしで行を選んだときの動作。

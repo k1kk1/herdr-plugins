@@ -69,8 +69,9 @@ Headless forms of the operation API, for scripts and other plugins:
 Active Agent Gather:
 
   herdr-pane-manager gather [2|3|4] [--scope workspace|all]
-      Collect the blocked / done / working agents into dedicated tabs, most
-      urgent first. Running it again refreshes the existing Gather.
+      Collect up to the chosen number of recently changed agents from all
+      workspaces into one tab by default.
+      Running it again refreshes the existing Gather.
 
   herdr-pane-manager refresh-gather
       Rebuild the Gather from the agents' current states.
@@ -303,7 +304,7 @@ fn gather_command(herdr: &Herdr, args: &Args) -> Result<()> {
             let per_tab = match args.positional.first() {
                 Some(raw) => {
                     let Some(size) = raw.parse::<u8>().ok().and_then(PanesPerTab::new) else {
-                        bail!("gather takes 2, 3 or 4 panes per tab, got `{raw}`");
+                        bail!("gather takes 2, 3 or 4 panes, got {raw}");
                     };
                     size
                 }
@@ -348,7 +349,7 @@ fn doctor(herdr: &Herdr, args: &Args) -> Result<()> {
     match crate::gather::session::load() {
         Some(session) => {
             println!(
-                "\ngather session: {} pane(s), {} tab(s), scope={}, {} per tab",
+                "\ngather session: {} pane(s), {} tab(s), scope={}, limit={}",
                 session.pane_ids().len(),
                 session.gather_tabs.len(),
                 session.scope,

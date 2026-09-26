@@ -372,7 +372,7 @@ fn manager_menu(
     // rather than on the current pane (addendum §9).
     let gathered = gather::session::load();
     menu.item(
-        gather_offer(snapshot, config, gathered.as_ref(), ready, exact),
+        gather_offer(snapshot, config, ready, exact),
         Choice::Gather,
     );
     if gathered.is_some() {
@@ -399,29 +399,20 @@ fn manager_menu(
     menu
 }
 
-/// The offer describes the next Gather. The session count belongs to Restore.
+/// Describe what Gather does; the live selection belongs in its preview.
 fn gather_offer(
     snapshot: &Snapshot,
     config: &Config,
-    gathered: Option<&gather::session::Session>,
     ready: &[String],
     exact: bool,
 ) -> Row {
     let known = exact || config.gather.scope() == Scope::CurrentWorkspace;
-    let note = match (gathered, known, ready.is_empty()) {
-        (Some(existing), true, _) => {
-            format!("更新後 {} 個 · 現在 {} 個", ready.len(), existing.origins.len())
-        }
-        (Some(_), false, _) => "更新対象を確認します".to_string(),
-        (None, true, true) => format!(
-            "いま対象の Agent はいません · {}",
-            config.gather.status_summary()
-        ),
-        (None, true, false) => {
-            format!("{} 個を集めます · {}", ready.len(), config.gather.status_summary())
-        }
-        (None, false, _) => "選択すると対象を確認します".to_string(),
+    let limit = config.gather.per_tab().get();
+    let scope = match config.gather.scope() {
+        Scope::CurrentWorkspace => "この Workspace",
+        Scope::AllWorkspaces => "全 Workspace",
     };
+    let note = format!("{scope} の Agent を更新が新しい順に最大 {limit} Pane、1つの Tab へ集める");
     let panels = if known && !ready.is_empty() {
         gather_panels(ready, Some(snapshot), config)
     } else {
@@ -465,7 +456,14 @@ fn manager_choice(
     let outcome = match choice {
         Choice::Cancel => unreachable!("handled above"),
         Choice::Undo => undo::undo(herdr).map(Some),
-        Choice::Gather => gather_flow(term, herdr, config, ready),
+        Choice::Gather => {
+            if menu.accepted_with() == Key::ShiftEnter {
+                gather_flow(term, herdr, config, ready)
+            } else {
+                gather::gather(herdr, config, config.gather.per_tab(), config.gather.scope())
+                    .map(Some)
+            }
+        }
         Choice::Restore => gather::restore(herdr).map(Some),
         // Without Shift these run straight away, using the default target the
         // row already names. A lone tab defaults to a new destination; a lone
@@ -622,7 +620,7 @@ fn gather_flow(
 ) -> Result<Option<Outcome>> {
     #[derive(Clone, Copy, PartialEq, Eq)]
     enum Pick {
-        PerTab(u8),
+        PaneCount(u8),
         Scope(Scope),
     }
 
@@ -646,17 +644,22 @@ fn gather_flow(
         default_names
     };
     let default_names = default_names.as_deref().unwrap_or(names);
+    let default_count = config.gather.per_tab();
     let mut menu = Menu::new("Gather Active Agents")
+        .enter("gather")
         .subtitle(format!(
-            "対応が必要な Agent を1つの Tab へ集めます · {} · {}",
+            "更新が新しい Agent から最大 {} Pane を1つの Tab へ · {} · {}",
+            default_count.get(),
             config.gather.status_summary(),
             default_scope.label()
         ));
 
-    for per_tab in PanesPerTab::ALL {
+    let mut counts = PanesPerTab::ALL;
+    counts.sort_by_key(|count| *count != default_count);
+    for per_tab in counts {
         let size = per_tab.get();
         menu.item(
-            Row::item(format!("{size} panes / tab"))
+            Row::item(format!("{size} panes in one tab"))
                 .hotkey(size.to_string())
                 .secondary(if per_tab == config.gather.per_tab() {
                     "default"
@@ -668,7 +671,7 @@ fn gather_flow(
                 } else {
                     gather_size_panels(size, default_names, config)
                 }),
-            Pick::PerTab(size as u8),
+            Pick::PaneCount(size as u8),
         );
     }
 
@@ -705,7 +708,7 @@ fn gather_flow(
 
     match pick {
         // A size runs straight away with the configured scope.
-        Pick::PerTab(size) => {
+        Pick::PaneCount(size) => {
             let per_tab = PanesPerTab::new(size).unwrap_or_else(|| config.gather.per_tab());
             gather::gather(herdr, config, per_tab, default_scope).map(Some)
         }

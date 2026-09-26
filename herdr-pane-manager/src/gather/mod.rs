@@ -1,8 +1,9 @@
 //! Active Agent Gather (addendum §1–§19).
 //!
-//! Collects the agent panes that need attention into dedicated tabs, and puts
-//! them back afterwards. It runs through the same pipeline shape as the other
-//! operations — snapshot, validate, plan, execute, verify, focus — but moves
+//! Collects the most recently changed eligible agent panes into one
+//! dedicated tab, and puts them back afterwards. It runs through the same
+//! pipeline shape as the other operations — snapshot, validate, plan, execute,
+//! verify, focus — but moves
 //! many panes at once, so the plan and the way back are written down first
 //! (addendum §11, §18).
 
@@ -21,17 +22,17 @@ use layout::PanesPerTab;
 use select::Scope;
 use session::{Origin, Session};
 
-/// Tab used to hold panes while the Gather tabs are rebuilt.
+/// Temporary tab used while the single Gather tab is rebuilt.
 ///
 /// Herdr treats a move into a pane's current tab as a no-op, so reshaping a
 /// tab means taking its panes out and putting them back. The holding tab
 /// closes itself the moment the last pane leaves it.
 const HOLDING_LABEL: &str = "Gathering…";
 
-/// Collect the active agents into Gather tabs.
+/// Collect up to the selected number of eligible agents into one Gather tab.
 ///
 /// Running this while a Gather is already in place refreshes it rather than
-/// nesting a second one, which is also how the existing tabs get reused
+/// nesting a second one, which is also how the existing tab gets reused
 /// (addendum §8).
 pub fn gather(
     herdr: &Herdr,
@@ -40,17 +41,18 @@ pub fn gather(
     scope: Scope,
 ) -> Result<Outcome> {
     let existing = session::load();
-    let wanted = active_agents(herdr, config, scope)?;
+    let mut wanted = active_agents(herdr, config, scope)?;
+    wanted.truncate(per_tab.get());
 
     if wanted.is_empty() {
         // Nothing to gather. If something was gathered before, this is really
         // a refresh that emptied out, so put those panes back.
         if let Some(existing) = existing {
             restore_session(herdr, existing)?;
-            return Ok(Outcome::new("No agent needs attention")
+            return Ok(Outcome::new("No agents to gather")
                 .with_detail("The gathered panes were returned to their tabs."));
         }
-        return Ok(Outcome::new("No agent needs attention").with_detail(format!(
+        return Ok(Outcome::new("No agents to gather").with_detail(format!(
             "Looking for {} in {}.",
             config.gather.status_summary(),
             scope.label()
@@ -100,7 +102,7 @@ pub fn gather(
     // Persist before moving: a crash mid-move must still leave a way back.
     session::save(&session)?;
 
-    // Hand the previous run's tabs over so a Refresh reuses them in place.
+    // Hand the previous run's tab over so Refresh keeps its identity.
     let reuse = session.gather_tabs.clone();
     let tabs = build(herdr, &order, per_tab, config, &reuse)?;
     session.gather_tabs = tabs.clone();
@@ -143,7 +145,7 @@ pub fn gather(
     if returned > 0 {
         detail.push_str(&format!(" · {returned} returned"));
     }
-    Ok(Outcome::new("Gathered the active agents").with_detail(detail))
+    Ok(Outcome::new("Gathered the selected agents").with_detail(detail))
 }
 
 /// Rebuild the Gather from the agents' current states (addendum §13).
@@ -189,7 +191,7 @@ fn restore_session(herdr: &Herdr, existing: Session) -> Result<Outcome> {
     Ok(Outcome::new("Returned the gathered agents").with_detail(restored.detail(count)))
 }
 
-/// Active agents for a scope, most urgent first.
+/// Eligible agents for a scope, most recently changed first.
 fn active_agents(herdr: &Herdr, config: &Config, scope: Scope) -> Result<Vec<Agent>> {
     let agents = herdr.agents()?;
     let workspace = match scope {
@@ -200,7 +202,7 @@ fn active_agents(herdr: &Herdr, config: &Config, scope: Scope) -> Result<Vec<Age
 }
 
 
-/// Move the chosen panes into Gather tabs and lay them out.
+/// Move the selected panes into one Gather tab and lay them out.
 fn build(
     herdr: &Herdr,
     order: &[String],
@@ -299,7 +301,7 @@ fn build(
         tabs.push(tab);
     }
 
-    // Gather tabs left over from a run that needed more of them.
+    // Close empty Gather tabs left over from an older multi-tab run.
     for leftover in spare {
         if let Ok(tab) = herdr.tab(&leftover) {
             if tab.pane_count == 0 {

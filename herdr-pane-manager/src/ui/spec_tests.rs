@@ -503,23 +503,12 @@ fn a_gather_shows_where_the_agents_are_now() {
 #[test]
 fn gather_refresh_previews_current_targets_instead_of_previous_session_size() {
     let snapshot = testkit::session("t1: p1* | p5");
-    let previous = gather::session::Session {
-        origins: vec![crate::place::Origin {
-            pane_id: testkit::pane("p1"),
-            workspace_id: "w1".into(),
-            tab_id: testkit::pane("t1"),
-            tab_label: None,
-            tab_index: 0,
-            anchor: None,
-            side: None,
-            order: 0,
-            focused: true,
-        }],
-        ..Default::default()
-    };
     let ready = vec!["p1".into(), "p5".into()];
-    let offer = gather_offer(&snapshot, &Config::default(), Some(&previous), &ready, true);
-    assert!(offer.secondary.as_deref().unwrap().contains("更新後 2 個 · 現在 1 個"));
+    let offer = gather_offer(&snapshot, &Config::default(), &ready, true);
+    assert_eq!(
+        offer.secondary.as_deref(),
+        Some("全 Workspace の Agent を更新が新しい順に最大 2 Pane、1つの Tab へ集める")
+    );
     let after = offer.preview.unwrap().panels.pop().unwrap();
     assert_eq!(after.shape.unwrap().pane_ids().len(), 2);
 }
@@ -545,16 +534,15 @@ fn a_gather_with_nothing_findable_draws_the_result_alone() {
 }
 
 #[test]
-fn a_gather_that_fills_two_tabs_is_drawn_as_two_sheets() {
+fn a_gather_preview_shows_only_the_selected_panes_in_one_tab() {
     let mut config = Config::default();
     config.gather.max_panes_per_tab = 2;
-    // Two agents: one tab, one sheet.
-    assert!(!gather_panels(&["p1".into(), "p5".into()], None, &config)[0].stacked);
-    // Five: three tabs, so the sheet behind is a tab that will exist.
     let many: Vec<String> = (1..=5).map(|n| format!("p{n}")).collect();
-    let panel = &gather_panels(&many, None, &config)[0];
-    assert!(panel.stacked);
-    assert_eq!(panel.behind.as_deref(), Some(config.gather.tab_label.as_str()));
+    let panels = gather_panels(&many, None, &config);
+    assert_eq!(panels.len(), 1);
+    assert!(!panels[0].stacked);
+    assert_eq!(panels[0].shape.as_ref().unwrap().pane_ids().len(), 2);
+    assert_eq!(panels[0].caption, config.gather.tab_label);
 }
 
 #[test]
@@ -593,10 +581,9 @@ fn fold_is_not_offered_when_there_is_nowhere_to_fold_into() {
 }
 
 #[test]
-fn a_gather_counts_every_pane_with_an_agent_in_it() {
-    // Two agents on screen, one of them idle: both are collected. Idle is
-    // what Claude and Codex report while they wait for you, and dropping
-    // it made the count flicker between one and two as the agents worked.
+fn a_gather_counts_detected_agents_in_configured_statuses() {
+    // Two agents on screen, one of them idle: both are candidates by default.
+    // Idle is what Claude and Codex report while they wait for you.
     let mut snapshot = testkit::session("t1: p1* | p5");
     snapshot.tabs[0].panes[0].agent = Some("claude".into());
     snapshot.tabs[0].panes[0].agent_status = AgentStatus::Working;
