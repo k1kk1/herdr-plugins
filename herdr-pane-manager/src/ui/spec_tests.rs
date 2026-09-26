@@ -132,7 +132,9 @@ fn the_fill_marks_the_pane_the_reader_is_sitting_in() {
 
 /// The rows the landing screen offers, without running it.
 fn row_titles(snapshot: &Snapshot, config: &Config) -> Vec<String> {
-    manager_menu(snapshot, config, None, true, snapshot.next_pane_here().cloned()).item_titles()
+    let ready = gatherable_here(snapshot, config);
+    manager_menu(snapshot, config, None, true, snapshot.next_pane_here().cloned(), &ready, true)
+        .item_titles()
 }
 
 /// The signature of a row's picture, for the detail screens.
@@ -208,20 +210,20 @@ fn a_swap_across_tabs_redraws_both_of_them() {
     let snapshot = testkit::session("t1: p5 | p1* ; t2: pB");
     let target = snapshot.pane(&testkit::pane("pB")).unwrap().clone();
     let panels = swap_panels(&snapshot, &target);
-    assert_eq!(drawn(&panels), ["(r w1:p5 w1:p1)", "w1:pB"]);
+    assert_eq!(drawn(&panels), ["(r w1:p5 w1:pB)", "w1:p1"]);
     assert_eq!(panels[0].caption, "1");
     assert_eq!(panels[1].caption, "2");
     // The reader's pane leaves t1, so nothing there is filled; it lands in
     // t2, and that is what the fill marks.
     assert!(panels[0].marked.is_empty());
-    assert_eq!(panels[1].marked, vec![testkit::pane("pB")]);
+    assert_eq!(panels[1].marked, vec![testkit::pane("p1")]);
     // t1's old slot now holds pB, and t2 holds p1.
     assert!(panels[0]
         .labels
-        .contains(&(testkit::pane("p1"), "pB".to_string())));
+        .contains(&(testkit::pane("pB"), "pB".to_string())));
     assert_eq!(
         panels[1].labels,
-        vec![(testkit::pane("pB"), "p1".to_string())]
+        vec![(testkit::pane("p1"), "p1".to_string())]
     );
 }
 
@@ -231,6 +233,11 @@ fn every_gather_size_row_draws_the_size_it_offers() {
     let id = |n: usize| format!("{ARRIVING}{n}");
     assert_eq!(
         drawn(&gather_size_panels(2, &["p5".to_string(), "p1".to_string()], &config)),
+        [format!("(r {} {})", id(0), id(1))]
+    );
+    // Capacity four still shows the two panes Gather will create now.
+    assert_eq!(
+        drawn(&gather_size_panels(4, &["p5".to_string(), "p1".to_string()], &config)),
         [format!("(r {} {})", id(0), id(1))]
     );
     assert_eq!(
@@ -394,12 +401,12 @@ fn the_legend_reads_a_gathers_slots_back_by_name() {
     // list from leaving out exactly the panes the picture is about.
     let mut snapshot = testkit::session("t1: p1* | p5");
     snapshot.tabs[0].panes[0].agent = Some("claude".into());
-    let panels = gather_panels(0, &["p1".into(), "p5".into()], None, &Config::default());
+    let panels = gather_panels(&["p1".into(), "p5".into()], None, &Config::default());
     assert_eq!(legend(&panels, &snapshot).len(), 2);
 
     // A name that matches nothing in this session is left out rather than
     // invented.
-    let panels = gather_panels(0, &["pZ".into()], None, &Config::default());
+    let panels = gather_panels(&["pZ".into()], None, &Config::default());
     assert!(legend(&panels, &snapshot).is_empty());
 }
 
@@ -474,7 +481,7 @@ fn a_gather_shows_where_the_agents_are_now() {
     }
     let config = Config::default();
     let names = gatherable_here(&snapshot, &config);
-    let panels = gather_panels(0, &names, Some(&snapshot), &config);
+    let panels = gather_panels(&names, Some(&snapshot), &config);
 
     // Before and after, like every other operation.
     assert_eq!(panels.len(), 2);
@@ -494,6 +501,30 @@ fn a_gather_shows_where_the_agents_are_now() {
 }
 
 #[test]
+fn gather_refresh_previews_current_targets_instead_of_previous_session_size() {
+    let snapshot = testkit::session("t1: p1* | p5");
+    let previous = gather::session::Session {
+        origins: vec![crate::place::Origin {
+            pane_id: testkit::pane("p1"),
+            workspace_id: "w1".into(),
+            tab_id: testkit::pane("t1"),
+            tab_label: None,
+            tab_index: 0,
+            anchor: None,
+            side: None,
+            order: 0,
+            focused: true,
+        }],
+        ..Default::default()
+    };
+    let ready = vec!["p1".into(), "p5".into()];
+    let offer = gather_offer(&snapshot, &Config::default(), Some(&previous), &ready, true);
+    assert!(offer.secondary.as_deref().unwrap().contains("更新後 2 個 · 現在 1 個"));
+    let after = offer.preview.unwrap().panels.pop().unwrap();
+    assert_eq!(after.shape.unwrap().pane_ids().len(), 2);
+}
+
+#[test]
 fn a_gather_that_leaves_the_readers_pane_alone_fills_nothing() {
     use herdr_plugin_kit::herdr::AgentStatus;
     let mut snapshot = testkit::session("t1: p1* | p5");
@@ -501,7 +532,7 @@ fn a_gather_that_leaves_the_readers_pane_alone_fills_nothing() {
     snapshot.tabs[0].panes[1].agent_status = AgentStatus::Working;
     let config = Config::default();
     let names = gatherable_here(&snapshot, &config);
-    let panels = gather_panels(0, &names, Some(&snapshot), &config);
+    let panels = gather_panels(&names, Some(&snapshot), &config);
     assert!(panels.iter().all(|panel| panel.marked.is_empty()));
 }
 
@@ -509,7 +540,7 @@ fn a_gather_that_leaves_the_readers_pane_alone_fills_nothing() {
 fn a_gather_with_nothing_findable_draws_the_result_alone() {
     // With the scope set past this snapshot there is no honest "before".
     let snapshot = testkit::session("t1: p1*");
-    let panels = gather_panels(0, &[], Some(&snapshot), &Config::default());
+    let panels = gather_panels(&[], Some(&snapshot), &Config::default());
     assert_eq!(panels.len(), 1);
 }
 
@@ -518,10 +549,10 @@ fn a_gather_that_fills_two_tabs_is_drawn_as_two_sheets() {
     let mut config = Config::default();
     config.gather.max_panes_per_tab = 2;
     // Two agents: one tab, one sheet.
-    assert!(!gather_panels(0, &["p1".into(), "p5".into()], None, &config)[0].stacked);
+    assert!(!gather_panels(&["p1".into(), "p5".into()], None, &config)[0].stacked);
     // Five: three tabs, so the sheet behind is a tab that will exist.
     let many: Vec<String> = (1..=5).map(|n| format!("p{n}")).collect();
-    let panel = &gather_panels(0, &many, None, &config)[0];
+    let panel = &gather_panels(&many, None, &config)[0];
     assert!(panel.stacked);
     assert_eq!(panel.behind.as_deref(), Some(config.gather.tab_label.as_str()));
 }
@@ -585,7 +616,7 @@ fn a_gather_writes_the_agents_own_names_into_the_boxes() {
     // mean?".
     let config = Config::default();
     let names = vec!["p5".to_string(), "p1".to_string()];
-    let panels = gather_panels(0, &names, None, &config);
+    let panels = gather_panels(&names, None, &config);
     assert_eq!(
         panels[0]
             .labels
@@ -603,6 +634,29 @@ fn a_gather_writes_the_agents_own_names_into_the_boxes() {
 #[test]
 fn a_gather_fills_nothing() {
     // The reader's pane is not one of the agents being collected.
-    let panels = gather_panels(0, &[], None, &Config::default());
+    let panels = gather_panels(&[], None, &Config::default());
     assert!(panels.iter().all(|panel| panel.marked.is_empty()));
+}
+
+#[test]
+fn cross_tab_swap_replays_moves_instead_of_preserving_vertical_slots() {
+    let mut snapshot = testkit::session("t1: p1* | p2 ; t2: p3 | p4");
+    let mut shape = Shape::pane(testkit::pane("p1"));
+    shape.split(&testkit::pane("p1"), &testkit::pane("p2"), Side::Down);
+    snapshot.tabs[0].shape = Some(shape);
+    let target = snapshot.pane(&testkit::pane("p3")).unwrap();
+    let panels = swap_panels(&snapshot, target);
+    assert_eq!(drawn(&panels), ["(r w1:p2 w1:p3)", "(r w1:p4 w1:p1)"]);
+}
+
+#[test]
+fn restore_preview_keeps_existing_panes_and_original_tabs() {
+    let snapshot = testkit::session("t1: p1* ; t2: p2 ; t3: p3");
+    let origins = vec![crate::place::Origin {
+        pane_id: testkit::pane("p1"), workspace_id: "w1".into(),
+        tab_id: testkit::pane("t2"), tab_label: None, tab_index: 1,
+        anchor: Some(testkit::pane("p2")), side: Some("down".into()), order: 0, focused: true,
+    }];
+    let panels = preview::returning_panels(&origins, &snapshot);
+    assert_eq!(drawn(&panels), ["(d w1:p2 w1:p1)"]);
 }

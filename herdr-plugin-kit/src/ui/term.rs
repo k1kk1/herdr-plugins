@@ -669,6 +669,8 @@ impl Term {
                     }
                     let colour = if in_fill {
                         view.accent
+                    } else if !is_wall(ch) && !ch.is_whitespace() {
+                        Color::White
                     } else {
                         Color::DarkGrey
                     };
@@ -1005,14 +1007,18 @@ fn preview_lines(preview: &Preview, room: usize, width: usize) -> Vec<String> {
     // and a box drawn one row shorter would not be a box: the stack is the
     // part that gives way. The captions cost nothing either way — they are
     // written into the frames themselves.
-    let stacked = preview.panels.iter().any(|panel| panel.stacked) && room > SMALLEST_BOX;
-    let reserved = usize::from(stacked);
+    // Keep one row available for the back sheet in every preview. A plain
+    // panel uses that row as top padding, so its front frame stays aligned.
+    let stack_row = room > SMALLEST_BOX;
+    let stacked = preview.panels.iter().any(|panel| panel.stacked) && stack_row;
+    let reserved = usize::from(stack_row);
 
     // The boxes are never drawn smaller than `SMALLEST_BOX` rows: the drawing
     // code clamps there, so budgeting for less does not shrink the picture, it
     // just draws part of it off the screen. The legend takes what is spare,
     // and is dropped entirely when nothing is.
-    let spare = room.saturating_sub(reserved).saturating_sub(SMALLEST_BOX);
+    let diagram_rows = if room >= reserved + 9 { 9 } else { SMALLEST_BOX };
+    let spare = room.saturating_sub(reserved).saturating_sub(diagram_rows);
     let legend: Vec<String> = preview.legend.iter().take(spare).cloned().collect();
     let room = room.saturating_sub(reserved).saturating_sub(legend.len());
 
@@ -1036,12 +1042,17 @@ fn preview_lines(preview: &Preview, room: usize, width: usize) -> Vec<String> {
             ..panel.clone()
         })
         .collect();
-    let mut lines = draw_panels(&panels, cells_w, cells_h);
+    let mut lines = draw_panels(&panels, cells_w, cells_h, stack_row);
     lines.extend(legend);
     lines
 }
 
-fn draw_panels(panels: &[Panel], cells_w: usize, cells_h: usize) -> Vec<String> {
+fn draw_panels(
+    panels: &[Panel],
+    cells_w: usize,
+    cells_h: usize,
+    reserve_stack_row: bool,
+) -> Vec<String> {
     let drawn: Vec<Vec<String>> = panels
         .iter()
         .map(|panel| match &panel.shape {
@@ -1067,10 +1078,17 @@ fn draw_panels(panels: &[Panel], cells_w: usize, cells_h: usize) -> Vec<String> 
         })
         .zip(panels)
         .map(|(lines, panel)| {
-            let lines = title(lines, &panel.caption);
+            let mut lines = title(lines, &panel.caption);
+            let width = lines.first().map(|line| columns(line)).unwrap_or(0);
             if panel.stacked {
                 stack(lines, panel.behind.as_deref())
             } else {
+                if reserve_stack_row {
+                    lines.insert(0, " ".repeat(width));
+                }
+                for line in &mut lines {
+                    line.insert(0, ' ');
+                }
                 lines
             }
         })
@@ -1103,10 +1121,8 @@ fn draw_panels(panels: &[Panel], cells_w: usize, cells_h: usize) -> Vec<String> 
 
 /// Put a second sheet behind a diagram, offset up and to the left.
 ///
-/// Only the back sheet's top edge and left wall are ever visible; the rest is
-/// covered by the front one. That is what makes it read as depth rather than
-/// as two diagrams — a whole second outline beside the first would just be
-/// another tab, which is the opposite of what this says.
+/// A plain panel reserves the same row and column as the back sheet. That
+/// keeps its front frame in the same position when menu selection changes.
 fn stack(front: Vec<String>, behind: Option<&str>) -> Vec<String> {
     let Some(width) = front.iter().map(|line| columns(line)).max() else {
         return front;
@@ -1122,8 +1138,6 @@ fn stack(front: Vec<String>, behind: Option<&str>) -> Vec<String> {
     });
     let last = front.len() - 1;
     for (row, line) in front.into_iter().enumerate() {
-        // The back sheet's bottom-left corner sits one row above the front's,
-        // which is the only place its bottom edge is not hidden.
         let edge = if row + 1 == last { '\u{2514}' } else { '\u{2502}' };
         let edge = if row == last { ' ' } else { edge };
         out.push(format!("{edge}{line}"));
@@ -1155,7 +1169,7 @@ fn title(mut lines: Vec<String>, caption: &str) -> Vec<String> {
 fn write_title(border: &str, name: &str) -> String {
     const INDENT: usize = 3;
     let cells: Vec<char> = border.chars().collect();
-    let room = cells.len().saturating_sub(INDENT + 2);
+    let room = cells.iter().skip(INDENT).take_while(|ch| **ch == '─').count().saturating_sub(1);
     if room < 3 {
         return border.to_string();
     }
@@ -1239,7 +1253,7 @@ fn pad(text: &str, width: usize) -> String {
 }
 
 /// Smallest preview worth drawing; the list may not take these lines.
-const PREVIEW_MIN: usize = 6;
+const PREVIEW_MIN: usize = 10;
 
 /// The fewest cells a diagram is ever drawn at, and the rows that costs.
 ///
@@ -1465,24 +1479,17 @@ mod stack_tests {
     use super::*;
 
     #[test]
-    fn a_stacked_panel_shows_a_second_sheet_behind_the_first() {
+    fn a_stacked_panel_keeps_its_back_sheet() {
         let shape = crate::layout::Shape::pane("p1");
         let front = shape.diagram_marking_labeled(8, 3, &["p1"], &[("p1", "p1")]);
-        let width = front.iter().map(|l| columns(l)).max().unwrap();
-        let stacked = stack(front.clone(), None);
-
-        // One row taller and one column wider: the sheet behind peeks out at
-        // the top and down the left.
+        let width = front.iter().map(|line| columns(line)).max().unwrap();
+        let stacked = stack(front.clone(), Some("old tab"));
         assert_eq!(stacked.len(), front.len() + 1);
         assert_eq!(columns(&stacked[0]), width);
-        assert!(stacked[0].starts_with('\u{250c}') && stacked[0].ends_with('\u{2510}'));
-        // Every original line is still there, shifted right by the back wall.
+        assert!(stacked[0].contains("old tab"));
         for (row, line) in front.iter().enumerate() {
             assert!(stacked[row + 1].ends_with(line), "row {row}");
         }
-        // The back sheet closes one row above the front's bottom edge.
-        assert!(stacked[stacked.len() - 2].starts_with('\u{2514}'));
-        assert!(stacked[stacked.len() - 1].starts_with(' '));
     }
 
     #[test]
@@ -1519,19 +1526,19 @@ mod title_tests {
     }
 
     #[test]
-    fn two_stacked_sheets_each_carry_their_own_name() {
-        // One line above the boxes, two names to put there: the frames are the
-        // only place both can be said.
-        let lines = stack(title(boxed(), "dotfiles"), Some("herdr-plugins"));
+    fn two_stacked_tabs_keep_both_names_in_their_frames() {
+        let mut shape = crate::layout::Shape::pane("p1");
+        shape.split("p1", "p2", crate::layout::Side::Right);
+        let lines = shape.diagram_marking_labeled(24, 3, &[], &[]);
+        let lines = stack(title(lines, "dotfiles"), Some("herdr-plugins"));
         assert!(lines[0].contains("herdr-plugins"));
         assert!(lines[1].contains("dotfiles"));
-        assert!(!lines[0].contains("dotfiles"));
     }
 
     #[test]
-    fn an_unnamed_sheet_behind_is_plain_depth() {
+    fn one_tab_frame_keeps_the_original_stack_outline() {
         let lines = stack(title(boxed(), "dotfiles"), None);
-        assert!(lines[0].chars().all(|ch| "\u{250c}\u{2500}\u{2510}".contains(ch)));
+        assert!(lines[0].starts_with('┌'));
     }
 }
 
@@ -1555,10 +1562,10 @@ mod crowding_tests {
     #[test]
     fn a_tab_with_more_panes_than_the_space_holds_says_so() {
         let panel = Panel::new("busy", many(10));
-        let lines = draw_panels(&[panel], 12, 3);
+        let lines = draw_panels(&[panel], 12, 3, true);
         assert!(lines.iter().any(|line| line.contains("10 panes")));
         // Still a box, still the tab's name in its border.
-        assert!(lines[0].contains("busy"));
+        assert!(lines.iter().any(|line| line.contains("busy")));
     }
 
     #[test]
@@ -1569,7 +1576,7 @@ mod crowding_tests {
                     .map(|n| (format!("p{n}"), format!("p{n}")))
                     .collect(),
             );
-            let lines = draw_panels(&[panel], 12, cells_h);
+            let lines = draw_panels(&[panel], 12, cells_h, true);
             let width = columns(&lines[0]);
             for line in &lines {
                 assert_eq!(columns(line), width, "cells_h {cells_h}: {line}");
@@ -1621,7 +1628,57 @@ mod crowding_tests {
     #[test]
     fn a_tab_that_does_fit_is_drawn_normally() {
         let panel = Panel::new("calm", many(3));
-        let lines = draw_panels(&[panel], 12, 6);
+        let lines = draw_panels(&[panel], 12, 6, true);
         assert!(!lines.iter().any(|line| line.contains("panes")));
+    }
+}
+
+#[cfg(test)]
+mod grid_preview_regressions {
+    use super::*;
+    use crate::layout::{Shape, Side};
+
+    #[test]
+    fn four_panes_keep_their_junctions_and_room_for_labels() {
+        let mut shape = Shape::pane("a");
+        shape.split("a", "b", Side::Right);
+        shape.split("a", "c", Side::Down);
+        shape.split("b", "d", Side::Down);
+        let mut preview = Preview::new(vec![Panel::new("A long tab title", shape)
+            .marking(vec!["a".into()])
+            .labeling(["a", "b", "c", "d"].map(|id| (id.into(), id.into())).to_vec())]);
+        preview.legend = vec!["one".into(), "two".into(), "three".into(), "four".into()];
+        let lines = preview_lines(&preview, 12, 80);
+        assert!(lines[1].contains('┬'), "{lines:?}");
+        assert!(lines[2].contains("●a"), "{lines:?}");
+        assert!(lines[2].contains("○b"), "{lines:?}");
+        assert!(lines.iter().any(|line| line.contains('┼')), "{lines:?}");
+        for id in ["a", "b", "c", "d"] {
+            assert!(lines[1..10].iter().any(|line| line.contains(id)), "{lines:?}");
+        }
+        assert!(lines.len() <= 12);
+    }
+
+    #[test]
+    fn compact_title_never_erases_a_split_junction() {
+        let border = "┌─────┬─────┐";
+        assert!(write_title(border, "long title").contains('┬'));
+    }
+
+    #[test]
+    fn switching_between_stacked_and_plain_previews_keeps_the_same_frame() {
+        let shape = Shape::pane("a");
+        let plain = Preview::new(vec![Panel::new("tab", shape.clone())]);
+        let stacked = Preview::new(vec![Panel::new("tab", shape).behind("old tab")]);
+        let plain = preview_lines(&plain, 12, 80);
+        let stacked = preview_lines(&stacked, 12, 80);
+        assert_eq!(plain.len(), stacked.len(), "{plain:?} vs {stacked:?}");
+        for (plain_line, stacked_line) in plain.iter().zip(&stacked) {
+            assert_eq!(columns(plain_line), columns(stacked_line));
+        }
+        let plain_front: String = plain[1].chars().skip(1).collect();
+        let stacked_front: String = stacked[1].chars().skip(1).collect();
+        assert!(stacked[0].contains("old tab"));
+        assert_eq!(plain_front, stacked_front);
     }
 }

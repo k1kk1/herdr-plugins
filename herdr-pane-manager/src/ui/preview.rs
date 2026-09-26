@@ -216,9 +216,10 @@ pub(super) fn gatherable_here(snapshot: &Snapshot, config: &Config) -> Vec<Strin
     agents.iter().map(|pane| pane_number(pane)).collect()
 }
 
-/// One Gather tab drawn at an explicit size, for the rows that choose it.
+/// The first Gather tab at the chosen capacity, filled with current targets.
 pub(super) fn gather_size_panels(size: usize, names: &[String], config: &Config) -> Vec<Panel> {
-    let Some((shape, ids)) = gathered_shape(size) else {
+    let shown = if names.is_empty() { size } else { size.min(names.len()) };
+    let Some((shape, ids)) = gathered_shape(shown) else {
         return Vec::new();
     };
     vec![Panel::new(config.gather.tab_label.clone(), shape).labeling(named(&ids, names))]
@@ -298,25 +299,15 @@ fn scattered_now(snapshot: &Snapshot, config: &Config) -> Option<Panel> {
 }
 
 pub(super) fn gather_panels(
-    panes: usize,
     names: &[String],
     snapshot: Option<&Snapshot>,
     config: &Config,
 ) -> Vec<Panel> {
     // Only the first tab is drawn; the caption carries the rest.
     let per_tab = config.gather.per_tab().get();
-    // No Gather session yet, so the count comes from the panes on screen: a
-    // tab drawn in four when only two agents are running is a picture of
-    // something that will not happen. `open` is an estimate, and zero means
-    // even that failed — then a full tab is the only honest sketch left.
-    let panes = match (panes, names.len()) {
-        // Neither a gathered session nor a countable agent: the scope reaches
-        // past this snapshot, so the picture falls back to the shape of a full
-        // tab — how the panes will be arranged, which is what a diagram is for.
-        (0, 0) => per_tab,
-        (0, open) => open,
-        (panes, _) => panes,
-    };
+    // The result is determined by current candidates. The previous session's
+    // count can differ when Gather is refreshed and must never size this view.
+    let panes = if names.is_empty() { per_tab } else { names.len() };
     let Some((shape, ids)) = gathered_shape(panes.min(per_tab)) else {
         return Vec::new();
     };
@@ -358,114 +349,54 @@ pub(super) fn gather_panels(
 /// Drawn from the record's own origins, so the caption names the tab they
 /// return to and the boxes carry the panes that return. A Swap has no origins
 /// — it is its own inverse — so that one keeps the wordless empty preview.
-pub(super) fn undo_panels(record: &undo::Record, active: &str) -> Vec<Panel> {
-    if record.origins.is_empty() {
-        return Vec::new();
-    }
-    let ids: Vec<String> = record
-        .origins
-        .iter()
-        .map(|origin| origin.pane_id.clone())
-        .collect();
-    let plan = crate::gather::layout::plan(&ids);
-    let Some(shape) = plan.map(|plan| plan.simulate()) else {
-        return Vec::new();
-    };
-
-    let mut homes: Vec<String> = record
-        .origins
-        .iter()
-        .filter_map(|origin| origin.tab_label.clone())
-        .collect();
-    homes.dedup();
-    let caption = match homes.len() {
-        0 => "元の Tab".to_string(),
-        1..=2 => homes.join(" · "),
-        _ => format!("{} +{}", homes[..2].join(" · "), homes.len() - 2),
-    };
-
-    let labels: Vec<(String, String)> = record
-        .origins
-        .iter()
-        .map(|origin| {
-            let short = origin
-                .pane_id
-                .split_once(':')
-                .map(|(_, rest)| rest.to_string())
-                .unwrap_or_else(|| origin.pane_id.clone());
-            (origin.pane_id.clone(), short)
-        })
-        .collect();
-
-    // Filled only when the reader's own pane is one of the ones going back.
-    // An Undo of somebody else's Fold moves panes, but not this one.
-    let marked = ids
-        .iter()
-        .filter(|id| *id == active)
-        .cloned()
-        .collect::<Vec<_>>();
-
-    vec![Panel::new(caption, shape)
-        .marking(marked)
-        .labeling(labels)]
+pub(super) fn undo_panels(record: &undo::Record, snapshot: &Snapshot) -> Vec<Panel> {
+    returning_panels(&record.origins, snapshot)
 }
 
-pub(super) fn restore_panels(panes: usize, config: &Config) -> Vec<Panel> {
-    let per_tab = config.gather.per_tab().get();
-    let Some((shape, ids)) = gathered_shape(panes.min(per_tab)) else {
-        return Vec::new();
-    };
-    let Some(session) = gather::session::load() else {
-        return Vec::new();
-    };
+/// Replay restoration against the destination's remaining panes. Unknown
+/// anchors/layouts are shown explicitly rather than inventing a Gather grid.
+pub(super) fn returning_panels(origins: &[crate::place::Origin], snapshot: &Snapshot) -> Vec<Panel> {
+    crate::place::by_original_tab(origins).into_iter().map(|(tab_id, origins)| {
+        let tab = snapshot.tab(&tab_id);
+        let caption = tab.map(tab_number).or_else(|| origins[0].tab_label.clone())
+            .unwrap_or_else(|| "元の Tab".into());
+        let mut shape = tab.and_then(TabEntry::layout);
+        let mut known = tab.is_none() || shape.is_some();
+        for origin in origins {
+            // Closed panes will also be skipped by the restore operation.
+            if snapshot.pane(&origin.pane_id).is_none() { known = false; break; }
+            if let Some(current) = shape.as_mut() {
+                if current.pane_ids().contains(&origin.pane_id) {
+                    known = false;
+                    break;
+                }
+                let anchor = origin.anchor.as_deref().filter(|id| current.pane_ids().iter().any(|p| p == id));
+                if let Some(anchor) = anchor {
+                    current.split(anchor, &origin.pane_id, origin.side());
+                } else {
+                    known = false;
+                    break;
+                }
+            } else if known {
+                shape = Some(Shape::pane(&origin.pane_id));
+            }
+        }
+        match shape.filter(|_| known) {
+            Some(shape) => {
+                let labels = shape.pane_ids().into_iter().map(|id| {
+                    let name = short_pane_id(&id); (id, name)
+                }).collect();
+                Panel::new(caption, shape).labeling(labels)
+                    .marking(vec![snapshot.source.pane_id.clone()])
+            }
+            None => Panel::unreadable(caption),
+        }
+    }).collect()
+}
 
-    // The gathered panes are recorded, so these are the real names rather than
-    // a guess from the current workspace.
-    let names: Vec<String> = session
-        .origins
-        .iter()
-        .map(|origin| short_pane_id(&origin.pane_id))
-        .collect();
-
-    let mut home: Vec<String> = session
-        .origins
-        .iter()
-        .filter_map(|origin| origin.tab_label.clone())
-        .collect();
-    home.dedup();
-    let back = match home.len() {
-        0 => "元の Tab".to_string(),
-        1..=2 => home.join(" · "),
-        _ => format!("{} +{}", home[..2].join(" · "), home.len() - 2),
-    };
-
-    // Left is where the panes are now, right is where they go. The dashed
-    // "will not exist" box used to sit on the right, which said the tab the
-    // panes are going *back* to disappears — the exact opposite of what
-    // Restore does. The tab that closes is the Active Agents one on the left,
-    // and its panes leaving is what says so.
-    let mut panels = vec![Panel::new(
-        gather_caption(panes, config, &config.gather.tab_label),
-        shape,
-    )
-    .labeling(named(&ids, &names))];
-
-    let returning: Vec<String> = session
-        .origins
-        .iter()
-        .map(|origin| origin.pane_id.clone())
-        .collect();
-    if let Some(home_shape) = gather::layout::plan(&returning).map(|plan| plan.simulate()) {
-        panels.push(
-            Panel::new(back, home_shape).labeling(
-                returning
-                    .iter()
-                    .map(|id| (id.clone(), short_pane_id(id)))
-                    .collect(),
-            ),
-        );
-    }
-    panels
+pub(super) fn restore_panels(snapshot: &Snapshot) -> Vec<Panel> {
+    gather::session::load().map(|session| returning_panels(&session.origins, snapshot))
+        .unwrap_or_default()
 }
 
 /// Herdr's own short name for a pane: `w2N:p5` reads as `p5`.
@@ -783,20 +714,6 @@ pub(super) fn split_beside(tab: &TabEntry, target: &str, arriving: &Pane, side: 
 /// ends up.
 pub(super) fn swap_panels(snapshot: &Snapshot, target: &Pane) -> Vec<Panel> {
     let source = &snapshot.source;
-    #[allow(clippy::type_complexity)]
-    let named = |tab: &TabEntry, swap: &(String, String)| -> Vec<(String, String)> {
-        tab.panes
-            .iter()
-            .map(|pane| {
-                let name = if pane.pane_id == swap.0 {
-                    swap.1.clone()
-                } else {
-                    pane_number(pane)
-                };
-                (pane.pane_id.clone(), name)
-            })
-            .collect()
-    };
     let shape_of = |tab: &TabEntry| -> Option<Shape> { tab.layout() };
 
     let Some(here) = snapshot.source_tab() else {
@@ -848,13 +765,21 @@ pub(super) fn swap_panels(snapshot: &Snapshot, target: &Pane) -> Vec<Panel> {
             Panel::unreadable(tab_number(there)),
         ];
     };
+    // Replay the same rightward insertion and removal as cross-tab swap.
+    let exchanged = |shape: Shape, outgoing: &str, incoming: &str, tab: &str| {
+        let siblings = snapshot.siblings(outgoing, tab);
+        let mut shape = shape;
+        shape.split(siblings.first().map(String::as_str).unwrap_or(outgoing), incoming, Side::Right);
+        shape.without(outgoing).unwrap()
+    };
+    let left = exchanged(left, &source.pane_id, &target.pane_id, &source.tab_id);
+    let right = exchanged(right, &target.pane_id, &source.pane_id, &target.tab_id);
+    let labels = |shape: &Shape| shape.pane_ids().into_iter()
+        .map(|id| { let name = short_pane_id(&id); (id, name) }).collect();
     vec![
-        // The reader's pane has left this one, so nothing here is filled.
-        Panel::new(tab_number(here), left)
-            .labeling(named(here, &(source.pane_id.clone(), pane_number(target)))),
-        Panel::new(tab_number(there), right)
-            .marking(vec![target.pane_id.clone()])
-            .labeling(named(there, &(target.pane_id.clone(), pane_number(source)))),
+        Panel::new(tab_number(here), left.clone()).labeling(labels(&left)),
+        Panel::new(tab_number(there), right.clone())
+            .marking(vec![source.pane_id.clone()]).labeling(labels(&right)),
     ]
 }
 
@@ -928,7 +853,7 @@ mod preview_tests {
         // the part worth showing, so "not counted" must not mean "not drawn".
         let mut config = Config::default();
         config.gather.max_panes_per_tab = 4;
-        let panels = gather_panels(0, &[], None, &config);
+        let panels = gather_panels(&[], None, &config);
         assert_eq!(panels.len(), 1);
         assert_eq!(panes_in(&panels[0]), 4, "a full tab is drawn");
         assert_eq!(panels[0].caption, config.gather.tab_label);
@@ -939,11 +864,11 @@ mod preview_tests {
         // Four boxes when two agents are running is a picture of something
         // that will not happen. The count comes from the panes on screen.
         let config = Config::default();
-        let panels = gather_panels(0, &["p1".to_string(), "p2".to_string()], None, &config);
+        let panels = gather_panels(&["p1".to_string(), "p2".to_string()], None, &config);
         assert_eq!(panes_in(&panels[0]), 2);
         // Three keep the top agent's column full height, with the other two
         // stacked beside it.
-        let panels = gather_panels(0, &["p1".to_string(), "p2".to_string(), "p3".to_string()], None, &config);
+        let panels = gather_panels(&["p1".to_string(), "p2".to_string(), "p3".to_string()], None, &config);
         assert_eq!(panes_in(&panels[0]), 3);
         assert_eq!(signature(3), {
             let id = |n: usize| format!("{ARRIVING}{n}");
@@ -957,7 +882,7 @@ mod preview_tests {
         config.gather.max_panes_per_tab = 2;
         // Six agents fill three tabs; the picture shows the first one, and
         // the caption carries the rest.
-        let panels = gather_panels(0, &["p1".to_string(), "p2".to_string(), "p3".to_string(), "p4".to_string(), "p5".to_string(), "p6".to_string()], None, &config);
+        let panels = gather_panels(&["p1".to_string(), "p2".to_string(), "p3".to_string(), "p4".to_string(), "p5".to_string(), "p6".to_string()], None, &config);
         assert_eq!(panes_in(&panels[0]), 2);
         assert_eq!(panels[0].caption, format!("{} ×3", config.gather.tab_label));
     }
@@ -1055,7 +980,6 @@ mod preview_tests {
             gather: false,
             unix_ms: 0,
         };
-        assert!(undo_panels(&swap, "w1:p1").is_empty());
+        assert!(undo_panels(&swap, &crate::testkit::session("t1: p1*")).is_empty());
     }
 }
-

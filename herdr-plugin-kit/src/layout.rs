@@ -431,28 +431,24 @@ impl Shape {
             // character fills one cell of the line but two columns of the
             // screen, so taking `available` *characters* made the row wider
             // than every other row and pushed the walls out of line.
-            // A pane `n` cells wide is `2n - 1` columns of interior: the last
-            // column of the last cell is its right-hand wall. Budgeting the
-            // full `2n` let a label in a one-cell pane overwrite that wall and
-            // run into its neighbour.
+            // Give each pane a compact title strip at its top edge, like the
+            // header of a live terminal pane. The dot also makes the active
+            // pane easy to spot when the preview is too small for the legend.
             let available = 2 * (max_x - min_x + 1) - 1;
-            // All of it or none of it. These labels are identifiers, and half
-            // an identifier is not a shorter answer — `p4`, `p6` and `p9` all
-            // cut down to `p`. A pane too small to name is named in the list
-            // under the picture instead.
-            let used: usize = label.chars().map(char_width).sum();
-            if used == 0 || used > available {
+            let marker = if highlight.contains(pane) { '●' } else { '○' };
+            let text: Vec<char> = std::iter::once(marker)
+                .chain(label.chars())
+                .collect();
+            let used: usize = text.iter().map(|ch| char_width(*ch)).sum();
+            if used > available {
                 continue;
             }
-            let text: Vec<char> = label.chars().collect();
-            let row = 2 * ((min_y + max_y) / 2) + 1;
-            let start = 2 * min_x + 1 + (available - used) / 2;
+            let row = 2 * min_y + 1;
+            let start = 2 * min_x + 1;
             let mut line: Vec<char> = out[row].chars().collect();
             if start + used > line.len() {
                 continue;
             }
-            // `used` cells make way for `text.len()` characters — the same
-            // number for ASCII, one fewer per wide character.
             line.splice(start..start + used, text);
             out[row] = line.into_iter().collect();
         }
@@ -816,8 +812,8 @@ mod sketch_tests {
             &["left"],
             &[("left", "1"), ("right", "2")],
         );
-        assert!(lines[1].contains('1'), "{lines:?}");
-        assert!(lines[1].contains('2'), "{lines:?}");
+        assert!(lines[1].contains("●1"), "{lines:?}");
+        assert!(lines[1].contains("○2"), "{lines:?}");
         assert!(lines[1].find('1') < lines[1].find('2'), "{lines:?}");
     }
 

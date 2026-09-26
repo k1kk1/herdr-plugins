@@ -74,6 +74,9 @@ fn saved_menu(
     let layout = herdr.layout(tab_id)?;
     let panes = layout.root.pane_ids();
     let current = Shape::from_layout(&layout.root);
+    let visible = visible_shape(current.as_ref(), layout.zoomed,
+        layout.focused_pane_id.as_deref().unwrap_or(&source.pane_id));
+    let after_caption = if layout.zoomed { "変更後の分割配置" } else { "実行後" };
     let preview_panes = preview_panes(herdr, source, &panes);
     let (saved, warning) = template::load_reporting();
     let mut menu = Menu::new("Saved Layouts")
@@ -104,11 +107,11 @@ fn saved_menu(
             illustrated(
                 Row::item(name.clone()).secondary(note),
                 transition_panels(
-                    current.as_ref(),
+                    visible.as_ref(),
                     saved_preview(saved_layout, &panes, &source.pane_id),
                     &preview_panes,
                     &source.pane_id,
-                    "実行後",
+                    after_caption,
                 ),
                 &preview_panes,
                 &source.pane_id,
@@ -153,6 +156,9 @@ fn menu(
     let panes = layout.root.pane_ids();
     let preview_panes = preview_panes(herdr, source, &panes);
     let current = Shape::from_layout(&layout.root);
+    let visible = visible_shape(current.as_ref(), layout.zoomed,
+        layout.focused_pane_id.as_deref().unwrap_or(&source.pane_id));
+    let after_caption = if layout.zoomed { "変更後の分割配置" } else { "実行後" };
     let (zoom_current, zoom_preview) =
         zoom_previews(current.as_ref(), &source.pane_id, layout.zoomed);
     let mut menu = Menu::new("Layout Tools")
@@ -174,11 +180,11 @@ fn menu(
                 .hotkey("e")
                 .secondary("すべての Pane を同じ大きさに"),
             transition_panels(
-                current.as_ref(),
+                visible.as_ref(),
                 equalized,
                 &preview_panes,
                 &source.pane_id,
-                "均等化後",
+                if layout.zoomed { "均等化後の分割配置" } else { "均等化後" },
             ),
             &preview_panes,
             &source.pane_id,
@@ -228,11 +234,11 @@ fn menu(
                     .hotkey(arrangement.hotkey())
                     .secondary(note),
                 transition_panels(
-                    current.as_ref(),
+                    visible.as_ref(),
                     arrangement_preview(arrangement, &panes, &source.pane_id),
                     &preview_panes,
                     &source.pane_id,
-                    "実行後",
+                    after_caption,
                 ),
                 &preview_panes,
                 &source.pane_id,
@@ -264,11 +270,11 @@ fn menu(
                 illustrated(
                     Row::item(name.clone()).secondary(note),
                     transition_panels(
-                        current.as_ref(),
+                        visible.as_ref(),
                         saved_preview(layout, &panes, &source.pane_id),
                         &preview_panes,
                         &source.pane_id,
-                        "実行後",
+                        after_caption,
                     ),
                     &preview_panes,
                     &source.pane_id,
@@ -351,6 +357,15 @@ fn preview_panes(herdr: &Herdr, source: &Pane, pane_ids: &[String]) -> Vec<Previ
             }
         })
         .collect()
+}
+
+/// The exported tree includes panes hidden by zoom.
+fn visible_shape(full: Option<&Shape>, zoomed: bool, focused: &str) -> Option<Shape> {
+    if zoomed {
+        Some(Shape::pane(focused))
+    } else {
+        full.cloned()
+    }
 }
 
 /// The visible state before and after toggling Zoom.
@@ -644,5 +659,18 @@ mod preview_tests {
         let ids = vec!["p1".to_string(), "p2".to_string(), "p3".to_string()];
         let after = saved_preview(&layout, &ids, "p1");
         assert!(transition_panels(Some(&current()), after, &panes(), "p1", "実行後").is_empty());
+    }
+}
+
+#[cfg(test)]
+mod visible_tests {
+    use super::*;
+
+    #[test]
+    fn current_view_shows_only_the_zoomed_pane() {
+        let mut full = Shape::pane("p1");
+        full.split("p1", "p2", herdr_plugin_kit::layout::Side::Right);
+        assert_eq!(visible_shape(Some(&full), true, "p2"), Some(Shape::pane("p2")));
+        assert_eq!(visible_shape(Some(&full), false, "p2"), Some(full));
     }
 }

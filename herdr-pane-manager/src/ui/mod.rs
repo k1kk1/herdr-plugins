@@ -7,7 +7,7 @@
 //! (addendum §13).
 
 use herdr_plugin_kit::context;
-use herdr_plugin_kit::herdr::{Herdr, Pane, Workspace};
+use herdr_plugin_kit::herdr::{Agent, Herdr, Pane, Workspace};
 use herdr_plugin_kit::label;
 use herdr_plugin_kit::layout::{Ratio, Shape, Side};
 use herdr_plugin_kit::ui::{Key, Menu, Panel, Row, Term};
@@ -187,12 +187,29 @@ fn manager_once(
 ) -> Result<Step> {
     let menu_partner = swap_partner(herdr, snapshot, config)
         .and_then(|id| snapshot.pane(&id).cloned());
+    // Use the same agent list and selector that Gather itself uses. The
+    // pane snapshot may have older status metadata, and an existing Gather
+    // session only describes the previous result.
+    let selected = herdr.agents().ok().map(|agents| {
+        gather_names(
+            &agents,
+            config,
+            match config.gather.scope() {
+                Scope::CurrentWorkspace => Some(snapshot.workspace.workspace_id.as_str()),
+                Scope::AllWorkspaces => None,
+            },
+        )
+    });
+    let exact = selected.is_some();
+    let ready = selected.unwrap_or_else(|| gatherable_here(snapshot, config));
     let mut menu = manager_menu(
         snapshot,
         config,
         config_warning,
         term.distinguishes_modified_enter(),
         menu_partner.clone(),
+        &ready,
+        exact,
     );
     let Some(choice) = menu.run(term)? else {
         return Ok(Step::Close);
@@ -201,7 +218,7 @@ fn manager_once(
     // again here would be a second round trip and a second chance to disagree
     // with the sentence the reader just read.
     let partner = menu_partner.map(|pane| pane.pane_id);
-    manager_choice(term, herdr, snapshot, config, choice, &menu, partner)
+    manager_choice(term, herdr, snapshot, config, choice, &menu, partner, &ready)
 }
 
 /// The landing screen, built but not run.
@@ -214,6 +231,8 @@ fn manager_menu(
     config_warning: Option<String>,
     modified_enter: bool,
     partner: Option<Pane>,
+    ready: &[String],
+    exact: bool,
 ) -> Menu<Choice> {
     let mut menu = Menu::new("Pane Manager")
         .subtitle(source_line(snapshot, config))
@@ -343,7 +362,7 @@ fn manager_menu(
             Row::item("Undo")
                 .hotkey("u")
                 .secondary(format!("{} を取り消す", record.describe()))
-                .panels(undo_panels(&record, &snapshot.source.pane_id)),
+                .panels(undo_panels(&record, snapshot)),
             Choice::Undo,
         );
     }
@@ -352,40 +371,12 @@ fn manager_menu(
     // Gather is listed with the operations, but it acts on the whole session
     // rather than on the current pane (addendum §9).
     let gathered = gather::session::load();
-    // Gather collects by *status*, so the number of panes on screen is not the
-    // number it will take: an idle agent is not gathered. The row has to say
-    // which, or a picture with one box in it while two agents are running
-    // reads as a bug rather than as the answer.
-    //
-    // Counted from this snapshot, which covers the current workspace. With
-    // `scope = "all"` that is not the whole story, and the row goes back to
-    // promising nothing rather than naming a number it cannot stand behind.
-    let local_scope = config.gather.scope() == Scope::CurrentWorkspace;
-    let ready = gatherable_here(snapshot, config);
-    let (collecting, gather_note) = match (&gathered, local_scope) {
-        (Some(existing), _) => (
-            existing.origins.len(),
-            format!("refresh · {} gathered", existing.origins.len()),
-        ),
-        (None, true) if ready.is_empty() => (
-            0,
-            format!("いま対象の Agent はいません · {}", config.gather.status_summary()),
-        ),
-        (None, true) => (
-            0,
-            format!("{} 個を集めます · {}", ready.len(), config.gather.status_summary()),
-        ),
-        (None, false) => (0, "選択すると対象を確認します".to_string()),
-    };
-
     menu.item(
-        Row::item("Gather Active Agents")
-            .hotkey("g")
-            .secondary(gather_note)
-            .panels(gather_panels(collecting, &ready, Some(snapshot), config)),
+        gather_offer(snapshot, config, gathered.as_ref(), ready, exact),
         Choice::Gather,
     );
     if gathered.is_some() {
+        let collecting = gathered.as_ref().map_or(0, |session| session.origins.len());
         menu.item(
             Row::item("Restore Gathered Agents")
                 .hotkey("r")
@@ -393,7 +384,7 @@ fn manager_menu(
                 // and the two take back different things: this one only ever
                 // reverses a Gather, and only Gather.
                 .secondary(format!("Gather した {collecting} 個を元の Tab へ"))
-                .panels(restore_panels(collecting, config)),
+                .panels(restore_panels(snapshot)),
             Choice::Restore,
         );
     }
@@ -408,6 +399,40 @@ fn manager_menu(
     menu
 }
 
+/// The offer describes the next Gather. The session count belongs to Restore.
+fn gather_offer(
+    snapshot: &Snapshot,
+    config: &Config,
+    gathered: Option<&gather::session::Session>,
+    ready: &[String],
+    exact: bool,
+) -> Row {
+    let known = exact || config.gather.scope() == Scope::CurrentWorkspace;
+    let note = match (gathered, known, ready.is_empty()) {
+        (Some(existing), true, _) => {
+            format!("更新後 {} 個 · 現在 {} 個", ready.len(), existing.origins.len())
+        }
+        (Some(_), false, _) => "更新対象を確認します".to_string(),
+        (None, true, true) => format!(
+            "いま対象の Agent はいません · {}",
+            config.gather.status_summary()
+        ),
+        (None, true, false) => {
+            format!("{} 個を集めます · {}", ready.len(), config.gather.status_summary())
+        }
+        (None, false, _) => "選択すると対象を確認します".to_string(),
+    };
+    let panels = if known && !ready.is_empty() {
+        gather_panels(ready, Some(snapshot), config)
+    } else {
+        Vec::new()
+    };
+    Row::item("Gather Active Agents")
+        .hotkey("g")
+        .secondary(note)
+        .panels(panels)
+}
+
 /// Act on the row the reader picked.
 fn manager_choice(
     term: &mut Term,
@@ -417,6 +442,7 @@ fn manager_choice(
     choice: Choice,
     menu: &Menu<Choice>,
     partner: Option<String>,
+    ready: &[String],
 ) -> Result<Step> {
     // Shift means "that, but let me say where" — on a quick row it names the
     // tab and stops to ask, on `Move to…` it carries the same intent into the
@@ -439,7 +465,7 @@ fn manager_choice(
     let outcome = match choice {
         Choice::Cancel => unreachable!("handled above"),
         Choice::Undo => undo::undo(herdr).map(Some),
-        Choice::Gather => gather_flow(term, herdr, config, &gatherable_here(snapshot, config)),
+        Choice::Gather => gather_flow(term, herdr, config, ready),
         Choice::Restore => gather::restore(herdr).map(Some),
         // Without Shift these run straight away, using the default target the
         // row already names. A lone tab defaults to a new destination; a lone
@@ -601,6 +627,25 @@ fn gather_flow(
     }
 
     let default_scope = config.gather.scope();
+    let agents = herdr.agents().ok();
+    let workspace = herdr.focused_workspace().ok().map(|w| w.workspace_id);
+    let default_names = agents.as_ref().map(|agents| {
+        gather_names(
+            agents,
+            config,
+            if default_scope == Scope::CurrentWorkspace {
+                workspace.as_deref()
+            } else {
+                None
+            },
+        )
+    });
+    let default_names = if default_scope == Scope::CurrentWorkspace && workspace.is_none() {
+        None
+    } else {
+        default_names
+    };
+    let default_names = default_names.as_deref().unwrap_or(names);
     let mut menu = Menu::new("Gather Active Agents")
         .subtitle(format!(
             "対応が必要な Agent を1つの Tab へ集めます · {} · {}",
@@ -618,7 +663,11 @@ fn gather_flow(
                 } else {
                     ""
                 })
-                .panels(gather_size_panels(size, names, config)),
+                .panels(if default_names.is_empty() {
+                    Vec::new()
+                } else {
+                    gather_size_panels(size, default_names, config)
+                }),
             Pick::PerTab(size as u8),
         );
     }
@@ -626,14 +675,26 @@ fn gather_flow(
     menu.row(Row::separator());
     menu.row(Row::header("Scope"));
     for scope in [Scope::CurrentWorkspace, Scope::AllWorkspaces] {
+        let scope_names = agents.as_ref().and_then(|agents| {
+            let workspace = match scope {
+                Scope::CurrentWorkspace => Some(workspace.as_deref()?),
+                Scope::AllWorkspaces => None,
+            };
+            Some(gather_names(agents, config, workspace))
+        });
+        let scope_names = if scope == default_scope {
+            Some(scope_names.as_deref().unwrap_or(default_names))
+        } else {
+            scope_names.as_deref()
+        };
         menu.item(
             Row::item(scope.label())
                 .hotkey(if scope == Scope::CurrentWorkspace { "w" } else { "a" })
                 .secondary(if scope == default_scope { "default" } else { "" })
-                // The scope changes which agents are collected, not how they
-                // are arranged; the picture is the configured size either way,
-                // and keeping one there stops the area blinking between rows.
-                .panels(gather_size_panels(config.gather.per_tab().get(), names, config)),
+                .panels(scope_names.filter(|names| !names.is_empty()).map_or_else(
+                    Vec::new,
+                    |names| gather_size_panels(config.gather.per_tab().get(), names, config),
+                )),
             Pick::Scope(scope),
         );
     }
@@ -651,6 +712,13 @@ fn gather_flow(
         // A scope runs with the configured size.
         Pick::Scope(scope) => gather::gather(herdr, config, config.gather.per_tab(), scope).map(Some),
     }
+}
+
+fn gather_names(agents: &[Agent], config: &Config, workspace: Option<&str>) -> Vec<String> {
+    gather::select::select(agents, &config.gather, workspace)
+        .iter()
+        .map(|agent| short_pane_id(&agent.pane_id))
+        .collect()
 }
 
 /// What a destination picker returned.
